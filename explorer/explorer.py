@@ -5,6 +5,7 @@ from sys import stdout
 
 import api
 import webui
+import rpc
 from aleo_types import Block, BlockHash
 from db import Database
 from interpreter.interpreter import init_builtin_program
@@ -87,6 +88,7 @@ class Explorer:
             await self.node.connect(os.environ.get("P2P_NODE_HOST", "127.0.0.1"), int(os.environ.get("P2P_NODE_PORT", "4133")))
             asyncio.create_task(webui.run())
             asyncio.create_task(api.run())
+            asyncio.create_task(rpc.run())
             while True:
                 msg = await self.message_queue.get()
                 match msg.type:

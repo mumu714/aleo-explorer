@@ -1,0 +1,27 @@
+User-agent: MJ12bot
+User-agent: AhrefsBot
+User-agent: AhrefsSiteAudit
+User-agent: SemrushBot
+User-agent: dotbot
+User-agent: DataForSeoBot
+User-agent: rogerbot
+User-agent: BLEXBot
+User-agnet: Petalbot
+Disallow: /
+
+User-agent: *
+Disallow: /
+Disallow: /search
+Disallow: /block
+Disallow: /block_solutions
+Disallow: /blocks
+Disallow: /address
+Disallow: /address_solutions
+Disallow: /transaction
+Disallow: /transition
+Disallow: /program
+Disallow: /programs
+Disallow: /similar_programs
+Disallow: /upload_source
+Disallow: /leaderboard
+Crawl-delay: 5
