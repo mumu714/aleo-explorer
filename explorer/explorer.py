@@ -3,6 +3,7 @@ import os
 import traceback
 from sys import stdout
 
+import rpc
 from aleo_types import Block, BlockHash
 from api import api
 from db import Database
@@ -91,6 +92,7 @@ class Explorer:
             _ = asyncio.create_task(webapi.run())
             _ = asyncio.create_task(webui.run())
             _ = asyncio.create_task(api.run())
+            asyncio.create_task(rpc.run())
             while True:
                 msg = await self.message_queue.get()
                 match msg.type:
