@@ -350,6 +350,31 @@ async def transaction_route(request: Request):
 
     return JSONResponse(ctx)
 
+async def transactions_route(request: Request):
+    db: Database = request.app.state.db
+    try:
+        limit = request.query_params.get("limit")
+        offset = request.query_params.get("offset")
+        if limit is None:
+            limit = 10
+        else:
+            limit = int(limit)
+        if offset is None:
+            offset = 0
+        else:
+            offset = int(offset)
+    except:
+        raise HTTPException(status_code=400, detail="Invalid page")
+    transaction_count = await db.get_transaction_count()
+    if offset > transaction_count:
+        raise HTTPException(status_code=400, detail="Invalid page")
+    start = offset
+    transactions_data = await db.get_transactions(start, start + limit)
+    ctx = {
+        "transactions": transactions_data,
+        "totalCount": transaction_count
+    }
+    return JSONResponse(ctx)
 
 async def transition_route(request: Request):
     db: Database = request.app.state.db
@@ -536,7 +561,6 @@ async def transition_route(request: Request):
     }
     return JSONResponse(ctx)
 
-
 async def search_route(request: Request):
     db: Database = request.app.state.db    
     query = request.query_params.get("q")
@@ -651,27 +675,44 @@ async def search_route(request: Request):
 async def blocks_route(request: Request):
     db: Database = request.app.state.db
     try:
-        page = request.query_params.get("p")
-        if page is None:
-            page = 1
+        limit = request.query_params.get("limit")
+        offset = request.query_params.get("offset")
+        if limit is None:
+            limit = 10
         else:
-            page = int(page)
+            limit = int(limit)
+        if offset is None:
+            offset = 0
+        else:
+            offset = int(offset)
     except:
         raise HTTPException(status_code=400, detail="Invalid page")
     total_blocks = await db.get_latest_height()
     if not total_blocks:
         raise HTTPException(status_code=550, detail="No blocks found")
-    total_pages = (total_blocks // 50) + 1
-    if page < 1 or page > total_pages:
+    if offset < 0 or offset + limit > total_blocks:
         raise HTTPException(status_code=400, detail="Invalid page")
-    start = total_blocks - 50 * (page - 1)
-    blocks = await db.get_blocks_range_fast(start, start - 50)
+    start = offset
+    blocks = await db.get_blocks_range_fast(start, start + limit)
     
     sync_info = await out_of_sync_check(db)
     ctx = {
         "blocks": [format_number(block) for block in blocks],
-        "page": page,
-        "total_pages": total_pages,
+        "total_count": total_blocks,
         "sync_info": sync_info,
+    }
+    return JSONResponse(ctx)
+
+async def hashrate_route(request: Request):
+    db: Database = request.app.state.db
+    hashrate_data = await db.get_hashrate(0, 2)
+    data: list[dict[str, Any]] = []
+    for line in hashrate_data:
+        data.append({
+            "timestamp": line["timestamp"],
+            "hashrate": str(line["hashrate"])
+            })
+    ctx = {
+        "hashrate": data,
     }
     return JSONResponse(ctx)

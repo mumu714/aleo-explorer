@@ -22,19 +22,23 @@ async def calc_route(request: Request):
 async def leaderboard_route(request: Request):
     db: Database = request.app.state.db
     try:
-        page = request.query_params.get("p")
-        if page is None:
-            page = 1
+        limit = request.query_params.get("limit")
+        offset = request.query_params.get("offset")
+        if limit is None:
+            limit = 50
         else:
-            page = int(page)
+            limit = int(limit)
+        if offset is None:
+            offset = 0
+        else:
+            offset = int(offset)
     except:
         raise HTTPException(status_code=400, detail="Invalid page")
     address_count = await db.get_leaderboard_size()
-    total_pages = (address_count // 50) + 1
-    if page < 1 or page > total_pages:
+    if offset < 0 or offset + limit > address_count:
         raise HTTPException(status_code=400, detail="Invalid page")
-    start = 50 * (page - 1)
-    leaderboard_data = await db.get_leaderboard(start, start + 50)
+    start = offset
+    leaderboard_data = await db.get_leaderboard(start, start + limit)
     data: list[dict[str, Any]] = []
     for line in leaderboard_data:
         data.append({
@@ -49,8 +53,7 @@ async def leaderboard_route(request: Request):
     sync_info = await out_of_sync_check(db)
     ctx = {
         "leaderboard": data,
-        "page": page,
-        "total_pages": total_pages,
+        "address_count": address_count,
         "total_credit": total_credit,
         "target_credit": target_credit,
         "ratio": ratio,
@@ -173,4 +176,38 @@ async def address_solution_route(request: Request):
         "total_pages": total_pages,
         "sync_info": sync_info,
     }
+    return JSONResponse(ctx)
+
+
+async def biggest_miners_route(request: Request):
+    db: Database = request.app.state.db
+    try:
+        limit = request.query_params.get("limit")
+        offset = request.query_params.get("offset")
+        if limit is None:
+            limit = 4
+        else:
+            limit = int(limit)
+        if offset is None:
+            offset = 0
+        else:
+            offset = int(offset)
+    except:
+        raise HTTPException(status_code=400, detail="Invalid page")
+    address_count = await db.get_leaderboard_size()
+    if offset < 0 or offset + limit > address_count:
+        raise HTTPException(status_code=400, detail="Invalid page")
+    start = offset
+    address_hashrate = await db.get_15min_top_miner(start, start + limit)
+    data: list[dict[str, Any]] = []
+    for line in address_hashrate:
+        data.append({
+            "address": line["address"],
+            "timestamp": line["timestamp"],
+            "hashrate": str(line["hashrate"])
+        })
+    ctx = {
+        "address_15min_hashrate": data
+    }
+
     return JSONResponse(ctx)
