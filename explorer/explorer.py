@@ -14,6 +14,7 @@ from node import Node
 from webapi import webapi
 from webui import webui
 from .types import Request, Message, ExplorerRequest
+from apscheduler.schedulers.tornado import TornadoScheduler
 
 
 class Explorer:
@@ -33,6 +34,8 @@ class Explorer:
         self.dev_mode = False
         self.latest_height = 0
         self.latest_block_hash: BlockHash = Network.genesis_block.block_hash
+        self.scheduler = TornadoScheduler()
+        self.scheduler.start()
 
     def start(self):
         self.task = asyncio.create_task(self.main_loop())
@@ -93,6 +96,8 @@ class Explorer:
             _ = asyncio.create_task(webui.run())
             _ = asyncio.create_task(api.run())
             asyncio.create_task(rpc.run())
+            self.scheduler.add_job(self.add_hashrate,'cron',minute= "*/5",id='job1') # type: ignore
+            self.scheduler.add_job(self.update_address_hashrate,'cron',minute= "*/15",id='job2')  # type: ignore
             while True:
                 msg = await self.message_queue.get()
                 match msg.type:
@@ -150,6 +155,12 @@ class Explorer:
                 genesis_block = Network.genesis_block
             if db_genesis.header.transactions_root != genesis_block.header.transactions_root:
                 await self.clear_database()
+
+    async def add_hashrate(self):
+        await self.db.save_hashrate()
+
+    async def update_address_hashrate(self):
+        await self.db.update_15min_address_hashrate()
 
     async def clear_database(self):
         print("The current database has a different genesis block!\nPress Ctrl+C to abort, or wait 10 seconds to clear the database.")

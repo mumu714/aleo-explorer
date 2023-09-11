@@ -12,8 +12,8 @@ from starlette.staticfiles import StaticFiles
 from starlette.responses import JSONResponse
 
 from middleware.asgi_logger import AccessLoggerMiddleware
-from middleware.htmx import HtmxMiddleware
-from middleware.minify import MinifyMiddleware
+from starlette.middleware.cors import CORSMiddleware
+from middleware.api_quota import APIQuotaMiddleware
 from middleware.server_timing import ServerTimingMiddleware
 # from node.light_node import LightNodeState
 from .chain_routes import *
@@ -45,7 +45,7 @@ async def index_route(request: Request):
     ctx = {
         "latest_block": format_block(latest_block),
         "recent_blocks": [format_number(recent_block) for recent_block in recent_blocks],
-        "network_speed": network_speed,
+        "network_speed": str(network_speed),
         "sync_info": sync_info,
     }
     return JSONResponse(ctx)
@@ -60,9 +60,11 @@ routes = [
     Route("/block", block_route),
     Route("/block_solutions", block_solution_route),
     Route("/transaction", transaction_route),
+    Route("/transactions", transactions_route),
     Route("/transition", transition_route),
     Route("/search", search_route),
     Route("/blocks", blocks_route),
+    Route("/hashrate", hashrate_route),
     # Programs
     Route("/programs", programs_route),
     Route("/program", program_route),
@@ -74,6 +76,7 @@ routes = [
     Route("/leaderboard", leaderboard_route),
     Route("/address", address_route),
     Route("/address_solutions", address_solution_route),
+    Route("/biggest_miners", biggest_miners_route),
     # Other
     Route("/robots.txt", robots_route),
 ]
@@ -100,7 +103,9 @@ app = Starlette(
         Middleware(AccessLoggerMiddleware, format=log_format),
         Middleware(HtmxMiddleware),
         Middleware(MinifyMiddleware),
+        Middleware(CORSMiddleware, allow_origins=['*'], allow_headers=["*"]),
         Middleware(ServerTimingMiddleware),
+        Middleware(APIQuotaMiddleware)
     ]
 )
 
