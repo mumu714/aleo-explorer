@@ -96,8 +96,9 @@ class Explorer:
             _ = asyncio.create_task(webui.run())
             _ = asyncio.create_task(api.run())
             asyncio.create_task(rpc.run())
-            self.scheduler.add_job(self.add_hashrate,'cron',minute= "*/5",id='job1') # type: ignore
-            self.scheduler.add_job(self.update_address_hashrate,'cron',minute= "*/15",id='job2')  # type: ignore
+            self.scheduler.add_job(self.add_hashrate, 'cron', minute="*/5", id='job1')  # type: ignore
+            self.scheduler.add_job(self.update_address_hashrate, 'cron', minute="*/15", id='job2')  # type: ignore
+            self.scheduler.add_job(self.add_coinbase, 'cron', hour="*/12", id='job3')  # type: ignore
             while True:
                 msg = await self.message_queue.get()
                 match msg.type:
@@ -161,6 +162,9 @@ class Explorer:
 
     async def update_address_hashrate(self):
         await self.db.update_15min_address_hashrate()
+
+    async def add_coinbase(self):
+        await self.db.save_coinbase()
 
     async def clear_database(self):
         print("The current database has a different genesis block!\nPress Ctrl+C to abort, or wait 10 seconds to clear the database.")
