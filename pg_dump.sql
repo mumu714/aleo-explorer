@@ -301,6 +301,15 @@ CREATE TABLE explorer.hashrate (
 );
 
 --
+-- Name: coinbase; Type: TABLE; Schema: explorer; Owner: -
+--
+
+CREATE TABLE explorer.coinbase (
+    height bigint NOT NULL,
+    reward numeric(40,10) NOT NULL
+);
+
+--
 -- Name: address_15min_hashrate; Type: TABLE; Schema: explorer; Owner: -
 --
 
@@ -2593,6 +2602,12 @@ ALTER TABLE ONLY explorer.future
 ALTER TABLE ONLY explorer.leaderboard
     ADD CONSTRAINT leaderboard_pk PRIMARY KEY (address);
 
+--
+-- Name: address_15min_hashrate address_15min_hashrate_pk; Type: CONSTRAINT; Schema: explorer; Owner: -
+--
+
+ALTER TABLE ONLY explorer.coinbase
+    ADD CONSTRAINT coinbase_pk PRIMARY KEY (height);
 
 --
 -- Name: address_15min_hashrate address_15min_hashrate_pk; Type: CONSTRAINT; Schema: explorer; Owner: -

@@ -100,6 +100,7 @@ async def address_route(request: Request):
             "nonce": str(solution["nonce"]),
             "target": str(solution["target"]),
             "target_sum": str(solution["target_sum"]),
+            "commitment": solution["commitment"]
         })
     recent_programs: list[dict[str, Any]] = []
     for program in programs:
@@ -122,6 +123,9 @@ async def address_route(request: Request):
             "transaction_id": program_tx.id,
         })
     sync_info = await out_of_sync_check(db)
+    network_1hour_speed = await db.get_network_speed(3600)
+    network_1hour_reward = await db.get_network_reward(3600)
+    address_1hour_reward = await db.get_address_reward(address, 3600)
     ctx = {
         "address": address,
         "address_trunc": address[:14] + "..." + address[-6:],
@@ -131,9 +135,15 @@ async def address_route(request: Request):
         "total_incentive": str(total_incentive),
         "total_solutions": solution_count,
         "total_programs": program_count,
-        "speed": speed,
+        "speed": float(speed),
         "timespan": interval_text[interval],
         "sync_info": sync_info,
+        "address_1hour_reward": int(address_1hour_reward),
+        "network": {
+            "network_1hour_speed": float(network_1hour_speed),
+            "network_1hour_reward": int(network_1hour_reward)
+
+        }
     }
     return JSONResponse(ctx)
 

@@ -42,6 +42,7 @@ async def block_route(request: Request):
     css: DictList = []
     target_sum = 0
     if coinbase_reward is not None:
+        coinbase_reward = coinbase_reward // 2
         solutions = await db.get_solution_by_height(height, 0, 100)
         for solution in solutions:
             css.append({
@@ -449,7 +450,7 @@ async def transition_route(request: Request):
     inputs: DictList = []
     for input_ in transition.inputs:
         match input_:
-            # TODO: report pycharm bug
+            # sudo TODO: report pycharm bug
             case PublicTransitionInput():
                 # noinspection PyUnresolvedReferences
                 inputs.append({
@@ -693,7 +694,7 @@ async def blocks_route(request: Request):
     if offset < 0 or offset + limit > total_blocks:
         raise HTTPException(status_code=400, detail="Invalid page")
     start = offset
-    blocks = await db.get_blocks_range_fast(start, start + limit)
+    blocks = await db.get_blocks_range_fast(start + limit, start)
     
     sync_info = await out_of_sync_check(db)
     ctx = {
@@ -705,7 +706,7 @@ async def blocks_route(request: Request):
 
 async def hashrate_route(request: Request):
     db: Database = request.app.state.db
-    hashrate_data = await db.get_hashrate(0, 2)
+    hashrate_data = await db.get_hashrate(0, 288)
     data: list[dict[str, Any]] = []
     for line in hashrate_data:
         data.append({
@@ -715,4 +716,23 @@ async def hashrate_route(request: Request):
     ctx = {
         "hashrate": data,
     }
+    return JSONResponse(ctx)
+
+async def coinbase_route(request: Request):
+    db: Database = request.app.state.db
+    total_blocks = await db.get_latest_height()
+    if not total_blocks:
+        raise HTTPException(status_code=550, detail="No blocks found")
+    coinbases = await db.get_coinbase()
+    print("get block")
+    data: list[dict[str, Any]] = []
+    for coinbase in coinbases:
+        data.append({
+            "height": coinbase["height"],
+            "reward": float(coinbase["reward"] / 2)
+        })
+    ctx = {
+        "coinbase": data,
+    }
+    print(ctx)
     return JSONResponse(ctx)
