@@ -39,7 +39,7 @@ class UvicornServer(multiprocessing.Process):
 async def index_route(request: Request):
     db: Database = request.app.state.db
     recent_blocks = await db.get_recent_blocks_fast()
-    network_speed = await db.get_network_speed()
+    network_speed = await db.get_network_speed(900)
     sync_info = await out_of_sync_check(db)
     latest_block = await db.get_latest_block()
     ctx = {
@@ -65,6 +65,7 @@ routes = [
     Route("/search", search_route),
     Route("/blocks", blocks_route),
     Route("/hashrate", hashrate_route),
+    Route("/coinbase", coinbase_route),
     # Programs
     Route("/programs", programs_route),
     Route("/program", program_route),
@@ -101,8 +102,6 @@ app = Starlette(
     on_startup=[startup],
     middleware=[
         Middleware(AccessLoggerMiddleware, format=log_format),
-        Middleware(HtmxMiddleware),
-        Middleware(MinifyMiddleware),
         Middleware(CORSMiddleware, allow_origins=['*'], allow_headers=["*"]),
         Middleware(ServerTimingMiddleware),
         Middleware(APIQuotaMiddleware)
