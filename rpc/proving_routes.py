@@ -99,8 +99,7 @@ async def address_route(request: Request):
             "reward": solution["reward"],
             "nonce": str(solution["nonce"]),
             "target": str(solution["target"]),
-            "target_sum": str(solution["target_sum"]),
-            "commitment": solution["commitment"]
+            "target_sum": str(solution["target_sum"])
         })
     recent_programs: list[dict[str, Any]] = []
     for program in programs:
@@ -154,19 +153,23 @@ async def address_solution_route(request: Request):
     if address is None:
         raise HTTPException(status_code=400, detail="Missing address")
     try:
-        page = request.query_params.get("p")
-        if page is None:
-            page = 1
+        limit = request.query_params.get("limit")
+        offset = request.query_params.get("offset")
+        if limit is None:
+            limit = 50
         else:
-            page = int(page)
+            limit = int(limit)
+        if offset is None:
+            offset = 0
+        else:
+            offset = int(offset)
     except:
         raise HTTPException(status_code=400, detail="Invalid page")
     solution_count = await db.get_solution_count_by_address(address)
-    total_pages = (solution_count // 50) + 1
-    if page < 1 or page > total_pages:
+    if offset < 0 or offset + limit > solution_count:
         raise HTTPException(status_code=400, detail="Invalid page")
-    start = 50 * (page - 1)
-    solutions = await db.get_solution_by_address(address, start, start + 50)
+    start = offset
+    solutions = await db.get_solution_by_address(address, start, start + limit)
     data: list[dict[str, Any]] = []
     for solution in solutions:
         data.append({
@@ -176,14 +179,14 @@ async def address_solution_route(request: Request):
             "nonce": str(solution["nonce"]),
             "target": str(solution["target"]),
             "target_sum": str(solution["target_sum"]),
+            "commitment": solution["commitment"]
         })
     sync_info = await out_of_sync_check(db)
     ctx = {
         "address": address,
         "address_trunc": address[:14] + "..." + address[-6:],
         "solutions": data,
-        "page": page,
-        "total_pages": total_pages,
+        "solution_count": solution_count,
         "sync_info": sync_info,
     }
     return JSONResponse(ctx)
