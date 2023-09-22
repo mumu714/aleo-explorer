@@ -562,6 +562,32 @@ async def transition_route(request: Request):
     }
     return JSONResponse(ctx)
 
+async def transitions_route(request: Request):
+    db: Database = request.app.state.db
+    try:
+        limit = request.query_params.get("limit")
+        offset = request.query_params.get("offset")
+        if limit is None:
+            limit = 10
+        else:
+            limit = int(limit)
+        if offset is None:
+            offset = 0
+        else:
+            offset = int(offset)
+    except:
+        raise HTTPException(status_code=400, detail="Invalid page")
+    transition_count = await db.get_transition_count()
+    if offset > transition_count:
+        raise HTTPException(status_code=400, detail="Invalid page")
+    start = offset
+    transitions_data = await db.get_transitions(start, start + limit)
+    ctx = {
+        "transitions": transitions_data,
+        "totalCount": transition_count
+    }
+    return JSONResponse(ctx)
+
 async def search_route(request: Request):
     db: Database = request.app.state.db    
     query = request.query_params.get("q")

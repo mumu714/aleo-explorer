@@ -9,10 +9,11 @@ from starlette.responses import RedirectResponse
 from starlette.responses import JSONResponse
 
 import disasm.aleo
-from aleo_types import DeployTransaction, Deployment, Program, \
-    AcceptedDeploy
+from aleo_types import u32, DeployTransaction, Deployment, Program, \
+    AcceptedDeploy, AcceptedExecute, RejectedExecute, ExecuteTransaction, \
+    FeeTransaction, RejectedExecution
 from db import Database
-from .utils import function_signature, out_of_sync_check
+from .utils import function_signature, out_of_sync_check, get_fee_amount_from_transition
 
 
 async def programs_route(request: Request):
@@ -56,6 +57,8 @@ async def program_route(request: Request):
         raise HTTPException(status_code=400, detail="Missing program id")
     block = await db.get_block_by_program_id(program_id)
     if block:
+        height = block.header.metadata.height
+        deploy_time = block.header.metadata.timestamp
         transaction: DeployTransaction | None = None
         for ct in block.transactions:
             if isinstance(ct, AcceptedDeploy):
@@ -73,6 +76,8 @@ async def program_route(request: Request):
             raise HTTPException(status_code=404, detail="Program not found")
         program = Program.load(BytesIO(program_bytes))
         transaction = None
+        height = None
+        deploy_time = None
     functions: list[str] = []
     for f in program.functions.keys():
         functions.append((await function_signature(db, str(program.id), str(f))).split("/", 1)[-1])
@@ -90,6 +95,50 @@ async def program_route(request: Request):
             "key_type": str(mapping.key.plaintext_type),
             "value_type": str(mapping.value.plaintext_type)
         })
+    recent_calls = await db.get_program_calls(program_id, 0, 30)
+    for call in recent_calls:
+        call_height = call["height"]
+        block = await db.get_block_by_height(u32(int(call_height)))
+        fee = 0
+        if block:
+            for ct in block.transactions:
+                match ct:
+                    case AcceptedDeploy():
+                        tx = ct.transaction
+                        if not isinstance(tx, DeployTransaction):
+                            raise HTTPException(status_code=550, detail="Invalid transaction type")
+                        if str(tx.fee.transition.id) == call["transition_id"]:
+                            fee = get_fee_amount_from_transition(tx.fee.transition)
+                            break
+                    case AcceptedExecute():
+                        tx = ct.transaction
+                        if not isinstance(tx, ExecuteTransaction):
+                            raise HTTPException(status_code=550, detail="Invalid transaction type")
+                        fee_transition = tx.additional_fee.value
+                        if fee_transition is not None:
+                            ts = fee_transition.transition
+                            if str(ts.id) == call["transition_id"]:
+                                fee = get_fee_amount_from_transition(fee_transition.transition)
+                                break
+                    case RejectedExecute():
+                        tx = ct.transaction
+                        if not isinstance(tx, FeeTransaction):
+                            raise HTTPException(status_code=550, detail="Invalid transaction type")
+                        if str(tx.fee.transition.id) == call["transition_id"]:
+                            fee = get_fee_amount_from_transition(tx.fee.transition)
+                        else:
+                            rejected = ct.rejected
+                            if not isinstance(rejected, RejectedExecution):
+                                raise HTTPException(status_code=550, detail="Database inconsistent")
+                            for ts in rejected.execution.transitions:
+                                if str(ts.id) == call["transition_id"]:
+                                    fee = get_fee_amount_from_transition(ts)
+                                    break
+                    case _:
+                        raise HTTPException(status_code=550, detail="Unsupported transaction type")
+        call.update({
+            "fee": fee
+        })
     ctx: dict[str, Any] = {
         "program_id": str(program.id),
         "times_called": await db.get_program_called_times(program_id),
@@ -101,18 +150,24 @@ async def program_route(request: Request):
         "functions": functions,
         "source": source,
         "has_leo_source": has_leo_source,
-        "recent_calls": await db.get_program_calls(program_id, 0, 30),
+        "recent_calls": recent_calls,
         "similar_count": await db.get_program_similar_count(program_id),
     }
     if transaction:
         ctx.update({
+            "height": str(height),
+            "timestamp": deploy_time,
             "transaction_id": str(transaction.id),
+            "deploy_fee": get_fee_amount_from_transition(transaction.fee.transition),
             "owner": str(transaction.owner.address),
             "signature": str(transaction.owner.signature),
         })
     else:
         ctx.update({
+            "height": None,
+            "timestamp": None,
             "transaction_id": None,
+            "deploy_fee": None,
             "owner": None,
             "signature": None,
         })
