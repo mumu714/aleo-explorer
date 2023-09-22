@@ -62,6 +62,7 @@ routes = [
     Route("/transaction", transaction_route),
     Route("/transactions", transactions_route),
     Route("/transition", transition_route),
+    Route("/transitions", transitions_route),
     Route("/search", search_route),
     Route("/blocks", blocks_route),
     Route("/hashrate", hashrate_route),
