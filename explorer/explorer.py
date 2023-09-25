@@ -164,7 +164,7 @@ class Explorer:
         await self.db.update_15min_address_hashrate()
 
     async def add_coinbase(self):
-        await self.db.save_coinbase()
+        await self.db.save_one_day_coinbase()
 
     async def clear_database(self):
         print("The current database has a different genesis block!\nPress Ctrl+C to abort, or wait 10 seconds to clear the database.")
