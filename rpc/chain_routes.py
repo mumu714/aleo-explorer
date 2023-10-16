@@ -10,9 +10,8 @@ from aleo_types import u32, Transition, ExecuteTransaction, PrivateTransitionInp
     RecordTransitionInput, TransitionOutput, RecordTransitionOutput, DeployTransaction, Program, \
     PublicTransitionInput, \
     PublicTransitionOutput, PrivateTransitionOutput, PlaintextValue, ExternalRecordTransitionInput, \
-    ExternalRecordTransitionOutput, AcceptedDeploy, AcceptedExecute, RejectedExecute, \
-    FeeTransaction, RejectedDeploy, RejectedExecution, RecordValue, Identifier, Entry, \
-    ProvingReward, StakingReward
+    ExternalRecordTransitionOutput, FutureTransitionOutput, AcceptedDeploy, AcceptedExecute, RejectedExecute, \
+    FeeTransaction, RejectedDeploy, RejectedExecution, RecordValue, Identifier, Entry
 from db import Database
 from .utils import function_signature, out_of_sync_check, function_definition, get_fee_amount_from_transition
 from .format import *
@@ -111,24 +110,12 @@ async def block_route(request: Request):
                 total_fee += fee
             case _:
                 raise HTTPException(status_code=550, detail="Unsupported transaction type")
-    pow_reward = 0
-    pos_reward = 0
-    for ratification in block.ratifications:
-        match ratification:
-            case ProvingReward():
-                pow_reward += ratification.amount
-            case StakingReward():
-                pos_reward += ratification.amount
-            case _:
-                raise HTTPException(status_code=550, detail="Unsupported ratification type")
 
     ctx = {
         "block": format_block(block),
-        "pow_reward": pow_reward,
-        "pos_reward": pos_reward,
         "block_hash_trunc": str(block_hash)[:12] + "..." + str(block_hash)[-6:],
         "Puzzle proof": {
-            "x": str(block.coinbase.value.proof.w.x) if block.coinbase.value else " ",
+            "x": " ",
             "y": "Not implemented"
         },
         "validator": "Not implemented", # await db.get_miner_from_block_hash(block.block_hash),
@@ -303,10 +290,10 @@ async def transaction_route(request: Request):
                 "transition_id": str(transition.id),
                 "action": await function_signature(db, str(transition.program_id), str(transition.function_name)),
             })
-            finalize_costs.append(await get_transition_finalize_cost(db, transition))
+            # finalize_costs.append(await get_transition_finalize_cost(db, transition))
         if transaction.additional_fee.value is not None:
             transition = transaction.additional_fee.value.transition
-            total_fee = get_fee_amount_from_transition(transition)
+            # total_fee = get_fee_amount_from_transition(transition)
             fee_transition = {
                 "transition_id": str(transition.id),
                 "action": await function_signature(db, str(transition.program_id), str(transition.function_name)),
@@ -318,10 +305,10 @@ async def transaction_route(request: Request):
             "global_state_root": str(global_state_root),
             "proof": str(proof),
             "proof_trunc": str(proof)[:30] + "..." + str(proof)[-30:] if proof else None,
-            "total_fee": total_fee,
+            # "total_fee": total_fee,
             "storage_cost": storage_cost,
             "finalize_costs": finalize_costs,
-            "priority_fee": total_fee - storage_cost - sum(finalize_costs),
+            # "priority_fee": total_fee - storage_cost - sum(finalize_costs),
             "transitions": transitions,
             "fee_transition": fee_transition,
         })
@@ -344,7 +331,7 @@ async def transaction_route(request: Request):
             finalize_costs = []
             for transition in rejected.execution.transitions:
                 transition: Transition
-                finalize_costs.append(await get_transition_finalize_cost(db, transition))
+                # finalize_costs.append(await get_transition_finalize_cost(db, transition))
                 rejected_transitions.append({
                     "transition_id": str(transition.id),
                     "action": await function_signature(db, str(transition.program_id), str(transition.function_name)),
@@ -404,7 +391,6 @@ async def transition_route(request: Request):
     transition = None
     transaction = None
     state = ""
-    fee = 0
     for ct in block.transactions:
         if transition is not None:
             break
@@ -418,7 +404,6 @@ async def transition_route(request: Request):
                     transition = tx.fee.transition
                     transaction_id = tx.id
                     transaction = tx
-                    fee = get_fee_amount_from_transition(tx.fee.transition)
                     break
             case AcceptedExecute():
                 tx = ct.transaction
@@ -437,7 +422,6 @@ async def transition_route(request: Request):
                         transition = ts
                         transaction_id = tx.id
                         transaction = tx
-                        fee = get_fee_amount_from_transition(ts)
                         break
             case RejectedExecute():
                 tx = ct.transaction
@@ -448,7 +432,6 @@ async def transition_route(request: Request):
                     transaction_id = tx.id
                     transaction = tx
                     state = "Accepted"
-                    fee = get_fee_amount_from_transition(tx.fee.transition)
                 else:
                     rejected = ct.rejected
                     if not isinstance(rejected, RejectedExecution):
@@ -459,7 +442,6 @@ async def transition_route(request: Request):
                             transaction_id = tx.id
                             transaction = tx
                             state = "Rejected"
-                            fee = get_fee_amount_from_transition(ts)
                             break
             case _:
                 raise HTTPException(status_code=550, detail="Not implemented")
@@ -467,12 +449,6 @@ async def transition_route(request: Request):
         raise HTTPException(status_code=550, detail="Transition not found in block")
     if transaction is None:
         raise HTTPException(status_code=550, detail="Transaction not found in block")
-    
-    proof = None
-    if isinstance(transaction, ExecuteTransaction):
-        proof = transaction.execution.proof.value
-    elif isinstance(transaction, FeeTransaction):
-        proof = transaction.fee.proof.value
 
     transition = cast(Transition, transition)
 
@@ -559,9 +535,24 @@ async def transition_route(request: Request):
                     "type": "External record",
                     "commitment": output.commitment,
                 })
+            case FutureTransitionOutput():
+                # noinspection PyUnresolvedReferences
+                future = {}
+                if output.future.value is not None:
+                    future = {
+                        "program_id": str(output.future.value.program_id),
+                        "function_name": str(output.future.value.function_name),
+                        "arguments": [str(i.plaintext) for i in output.future.value.arguments] # type: ignore
+                    }
+                outputs.append({
+                    "type": "Future",
+                    "future_hash": str(output.future_hash),
+                    "future": future
+                })
             case _:
                 raise HTTPException(status_code=550, detail="Not implemented")
 
+    """
     finalizes: list[str] = []
     if transition.finalize.value is not None:
         for finalize in transition.finalize.value:
@@ -573,7 +564,7 @@ async def transition_route(request: Request):
                     raise NotImplementedError
                 case _:
                     raise HTTPException(status_code=550, detail="Not implemented")
-
+    """
     definition = await function_definition(db, str(transition.program_id), str(transition.function_name))
     ctx = {
         "ts_id": ts_id,
@@ -584,8 +575,6 @@ async def transition_route(request: Request):
         "function_name": str(function_name),
         "tpk": str(tpk),
         "tcm": str(tcm),
-        "fee": fee,
-        "proof": str(proof),
         "function_signature": await function_signature(db, str(transition.program_id), str(transition.function_name)),
         "function_definition": {
             "input": definition["input"], # type: ignore
@@ -594,7 +583,7 @@ async def transition_route(request: Request):
         },
         "inputs": inputs,
         "outputs": outputs,
-        "finalizes": finalizes,
+        # "finalizes": finalizes,
     }
     return JSONResponse(ctx)
 
@@ -733,7 +722,6 @@ async def search_route(request: Request):
             }
             return JSONResponse(ctx)
     raise HTTPException(status_code=404, detail="Unknown object type or searching is not supported")
-
 
 async def blocks_route(request: Request):
     db: Database = request.app.state.db
