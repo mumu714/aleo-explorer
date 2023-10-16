@@ -11,7 +11,7 @@ from aleo_types import u32, Transition, ExecuteTransaction, PrivateTransitionInp
     PublicTransitionInput, \
     PublicTransitionOutput, PrivateTransitionOutput, PlaintextValue, ExternalRecordTransitionInput, \
     ExternalRecordTransitionOutput, FutureTransitionOutput, AcceptedDeploy, AcceptedExecute, RejectedExecute, \
-    FeeTransaction, RejectedDeploy, RejectedExecution, RecordValue, Identifier, Entry
+    FeeTransaction, RejectedDeploy, RejectedExecution, RecordValue, Identifier, Entry, Subdag
 from db import Database
 from .utils import function_signature, out_of_sync_check, function_definition, get_fee_amount_from_transition
 from .format import *
@@ -63,24 +63,24 @@ async def block_route(request: Request):
                 tx = ct.transaction
                 if not isinstance(tx, DeployTransaction):
                     raise HTTPException(status_code=550, detail="Invalid transaction type")
-                fee = get_fee_amount_from_transition(tx.fee.transition)
+                fee = 0
                 t = {
                     "tx_id": str(tx.id),
                     "index": ct.index,
                     "type": "Deploy",
                     "state": "Accepted",
                     "transitions_count": 1,
-                    "fee": fee,
+                    # "fee": fee,
                 }
                 txs.append(t)
-                total_fee += fee
+                # total_fee += fee
             case AcceptedExecute():
                 tx = ct.transaction
                 if not isinstance(tx, ExecuteTransaction):
                     raise HTTPException(status_code=550, detail="Invalid transaction type")
                 fee_transition = tx.additional_fee.value
                 if fee_transition is not None:
-                    fee = get_fee_amount_from_transition(fee_transition.transition)
+                    fee = 0
                 else:
                     fee = 0
                 t = {
@@ -97,7 +97,7 @@ async def block_route(request: Request):
                 tx = ct.transaction
                 if not isinstance(tx, FeeTransaction):
                     raise HTTPException(status_code=550, detail="Invalid transaction type")
-                fee = get_fee_amount_from_transition(tx.fee.transition)
+                fee = 0
                 t = {
                     "tx_id": str(tx.id),
                     "index": ct.index,
@@ -110,6 +110,27 @@ async def block_route(request: Request):
                 total_fee += fee
             case _:
                 raise HTTPException(status_code=550, detail="Unsupported transaction type")
+
+    subs: DictList = []
+    if isinstance(block.authority, QuorumAuthority):
+        subdag = block.authority.subdag  # type: ignore
+        for round_, certificates in subdag.subdag.items():
+            for index, certificate in enumerate(certificates):
+                if round_ != certificate.batch_header.round:
+                    raise ValueError("invalid subdag round")
+                else:
+                    subs.append({
+                        "round": round_,
+                        "index": index,
+                        "certificate_id": str(certificate.certificate_id),
+                        "batch_id": str(certificate.batch_header.batch_id),
+                        "author": str(certificate.batch_header.author),
+                        "timestamp": certificate.batch_header.timestamp,
+                        "previous_certificate_ids": [str(i) for i in certificate.batch_header.previous_certificate_ids],
+                        "transmission_ids": str(certificate.batch_header.transmission_ids),
+                        "batch_header_signature": str(certificate.batch_header.signature),
+                        "signatures": [str(i[0]) for i in certificate.signatures] 
+                    })
 
     ctx = {
         "block": format_block(block),
@@ -124,6 +145,7 @@ async def block_route(request: Request):
         "coinbase_solutions": [format_number(cs) for cs in css],
         "target_sum": str(target_sum),
         "total_fee": total_fee,
+        "subdag": subs
     }
     return JSONResponse(ctx)
 

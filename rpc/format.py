@@ -1,9 +1,14 @@
 from typing import Any
 from db import Block
 from decimal import Decimal
-from aleo_types import BlockRewardRatify, PuzzleRewardRatify, GenesisRatify
+from aleo_types import BlockRewardRatify, PuzzleRewardRatify, GenesisRatify, QuorumAuthority, BeaconAuthority
 
 def format_block(block: Block):
+    authority_type = ""
+    if isinstance(block.authority, QuorumAuthority):
+        authority_type = "Quorum"
+    elif isinstance(block.authority, BeaconAuthority):
+        authority_type = "Beacon"
     rs: list[dict[str, Any]] = []
     for ratification in block.ratifications:
         if isinstance(ratification, BlockRewardRatify):
@@ -22,7 +27,7 @@ def format_block(block: Block):
                  "subdag_root": str(block.header.subdag_root),
                  "metadata": block.header.metadata.__dict__
             },
-            # "authority": str(block.authority),
+            "authority_type": authority_type,
             "ratifications": rs
         }
 
