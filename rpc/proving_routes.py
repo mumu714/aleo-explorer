@@ -99,7 +99,8 @@ async def address_route(request: Request):
             "reward": solution["reward"],
             "nonce": str(solution["nonce"]),
             "target": str(solution["target"]),
-            "target_sum": str(solution["target_sum"])
+            "target_sum": str(solution["target_sum"]),
+            "commitment": str(solution["commitment"])
         })
     recent_programs: list[dict[str, Any]] = []
     for program in programs:
