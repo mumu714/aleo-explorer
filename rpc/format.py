@@ -12,9 +12,9 @@ def format_block(block: Block):
     rs: list[dict[str, Any]] = []
     for ratification in block.ratifications:
         if isinstance(ratification, BlockRewardRatify):
-            rs.append({"type": "block_reward", "amount": str(ratification.amount)})
+            rs.append({"type": "block_reward", "amount": ratification.amount})
         elif isinstance(ratification, PuzzleRewardRatify):
-            rs.append({"type": "puzzle_reward", "amount": str(ratification.amount)})
+            rs.append({"type": "puzzle_reward", "amount": ratification.amount})
     return {
             "block_hash": str(block.block_hash),
             "previous_hash": str(block.previous_hash),
