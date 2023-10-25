@@ -8,12 +8,12 @@ from starlette.responses import JSONResponse
 
 from aleo_types import u32, Transition, ExecuteTransaction, PrivateTransitionInput, \
     RecordTransitionInput, TransitionOutput, RecordTransitionOutput, DeployTransaction, Program, \
-    PublicTransitionInput, \
+    PublicTransitionInput, ConfirmedTransaction, Transaction, \
     PublicTransitionOutput, PrivateTransitionOutput, PlaintextValue, ExternalRecordTransitionInput, \
     ExternalRecordTransitionOutput, FutureTransitionOutput, AcceptedDeploy, AcceptedExecute, RejectedExecute, \
     FeeTransaction, RejectedDeploy, RejectedExecution, RecordValue, Identifier, Entry, Subdag
 from db import Database
-from .utils import function_signature, out_of_sync_check, function_definition, get_fee_amount_from_transition
+from .utils import function_signature, out_of_sync_check, function_definition
 from .format import *
 
 DictList = list[dict[str, Any]]
@@ -56,58 +56,65 @@ async def block_route(request: Request):
             target_sum += solution["target"]
 
     txs: DictList = []
-    total_fee = 0
+    total_base_fee = 0
+    total_priority_fee = 0
     for ct in block.transactions:
         match ct:
             case AcceptedDeploy():
                 tx = ct.transaction
                 if not isinstance(tx, DeployTransaction):
                     raise HTTPException(status_code=550, detail="Invalid transaction type")
-                fee = 0
+                base_fee, priority_fee = tx.fee.amount
                 t = {
                     "tx_id": str(tx.id),
                     "index": ct.index,
                     "type": "Deploy",
                     "state": "Accepted",
                     "transitions_count": 1,
-                    # "fee": fee,
+                    "base_fee": base_fee,
+                    "priority_fee": priority_fee,
                 }
                 txs.append(t)
-                # total_fee += fee
+                total_base_fee += base_fee
+                total_priority_fee += priority_fee
             case AcceptedExecute():
                 tx = ct.transaction
                 if not isinstance(tx, ExecuteTransaction):
                     raise HTTPException(status_code=550, detail="Invalid transaction type")
-                fee_transition = tx.additional_fee.value
-                if fee_transition is not None:
-                    fee = 0
+                additional_fee = tx.additional_fee.value
+                if additional_fee is not None:
+                    base_fee, priority_fee = additional_fee.amount
                 else:
-                    fee = 0
+                    base_fee, priority_fee = 0, 0
                 t = {
                     "tx_id": str(tx.id),
                     "index": ct.index,
                     "type": "Execute",
                     "state": "Accepted",
                     "transitions_count": len(tx.execution.transitions) + bool(tx.additional_fee.value is not None),
-                    "fee": fee,
+                    "base_fee": base_fee,
+                    "priority_fee": priority_fee,
                 }
                 txs.append(t)
-                total_fee += fee
+                total_base_fee += base_fee
+                total_priority_fee += priority_fee
             case RejectedExecute():
                 tx = ct.transaction
                 if not isinstance(tx, FeeTransaction):
                     raise HTTPException(status_code=550, detail="Invalid transaction type")
-                fee = 0
+                base_fee, priority_fee = tx.fee.amount
                 t = {
                     "tx_id": str(tx.id),
                     "index": ct.index,
                     "type": "Execute",
                     "state": "Rejected",
                     "transitions_count": 1,
-                    "fee": fee,
+                    "base_fee": base_fee,
+                    "priority_fee": priority_fee,
                 }
                 txs.append(t)
-                total_fee += fee
+                total_base_fee += base_fee
+                total_priority_fee += priority_fee
             case _:
                 raise HTTPException(status_code=550, detail="Unsupported transaction type")
 
@@ -127,7 +134,7 @@ async def block_route(request: Request):
                         "author": str(certificate.batch_header.author),
                         "timestamp": certificate.batch_header.timestamp,
                         "previous_certificate_ids": [str(i) for i in certificate.batch_header.previous_certificate_ids],
-                        "transmission_ids": str(certificate.batch_header.transmission_ids),
+                        "transmission_ids": [str(i.id) for i in certificate.batch_header.transmission_ids], # type: ignore
                         "batch_header_signature": str(certificate.batch_header.signature),
                         "signatures": [str(i[0]) for i in certificate.signatures] 
                     })
@@ -135,16 +142,13 @@ async def block_route(request: Request):
     ctx = {
         "block": format_block(block),
         "block_hash_trunc": str(block_hash)[:12] + "..." + str(block_hash)[-6:],
-        "Puzzle proof": {
-            "x": " ",
-            "y": "Not implemented"
-        },
         "validator": "Not implemented", # await db.get_miner_from_block_hash(block.block_hash),
         "coinbase_reward": str(coinbase_reward),
+        "target_sum": str(target_sum),
+        "total_base_fee": total_base_fee,
+        "total_priority_fee": total_priority_fee,
         "transactions": txs,
         "coinbase_solutions": [format_number(cs) for cs in css],
-        "target_sum": str(target_sum),
-        "total_fee": total_fee,
         "subdag": subs
     }
     return JSONResponse(ctx)
@@ -201,20 +205,6 @@ async def block_solution_route(request: Request):
     }
     return JSONResponse(ctx)
 
-async def get_transition_finalize_cost(db: Database, ts: Transition):
-    if ts.program_id == "credits.aleo" and str(ts.function_name) in ["mint", "fee", "split"]:
-        return 0
-    else:
-        pb = await db.get_program(str(ts.program_id))
-        if pb is None:
-            raise HTTPException(status_code=404, detail="Program not found")
-        p = Program.load(BytesIO(pb))
-        f = p.functions[ts.function_name]
-        if f.finalize.value is not None:
-            return f.finalize.value[1].cost
-        else:
-            return 0
-
 async def transaction_route(request: Request):
     db: Database = request.app.state.db
     tx_id = request.query_params.get("id")
@@ -224,8 +214,8 @@ async def transaction_route(request: Request):
     if block is None:
         raise HTTPException(status_code=404, detail="Transaction not found")
 
-    transaction = None
-    confirmed_transaction = None
+    transaction: Transaction | None = None
+    confirmed_transaction: ConfirmedTransaction | None = None
     transaction_type = ""
     transaction_state = ""
     index = -1
@@ -271,6 +261,8 @@ async def transaction_route(request: Request):
     if transaction is None:
         raise HTTPException(status_code=550, detail="Transaction not found in block")
 
+    storage_cost, namespace_cost, finalize_costs, priority_fee, burnt = await confirmed_transaction.get_fee_breakdown(db)
+
     ctx: dict[str, Any] = {
         "tx_id": tx_id,
         "tx_id_trunc": str(tx_id)[:12] + "..." + str(tx_id)[-6:],
@@ -278,6 +270,12 @@ async def transaction_route(request: Request):
         "index": index,
         "type": transaction_type,
         "state": transaction_state,
+        "total_fee": storage_cost + namespace_cost + sum(finalize_costs) + priority_fee + burnt,
+        "storage_cost": storage_cost,
+        "namespace_cost": namespace_cost,
+        "finalize_costs": finalize_costs,
+        "priority_fee": priority_fee,
+        "burnt_fee": burnt,
         "reject_reason": await db.get_transaction_reject_reason(tx_id) if transaction_state == "Rejected" else None,
     }
 
@@ -285,15 +283,9 @@ async def transaction_route(request: Request):
         deployment = transaction.deployment
         program = deployment.program
         fee_transition = transaction.fee.transition
-        storage_cost, namespace_cost = deployment.cost
-        total_fee = get_fee_amount_from_transition(fee_transition)
         ctx.update({
             "edition": int(deployment.edition),
             "program_id": str(program.id),
-            "total_fee": total_fee,
-            "storage_cost": storage_cost,
-            "namespace_cost": namespace_cost,
-            "priority_fee": total_fee - storage_cost - namespace_cost,
             "transitions": [{
                 "transition_id": str(transaction.fee.transition.id),
                 "action": await function_signature(db, str(fee_transition.program_id), str(fee_transition.function_name)),
@@ -304,43 +296,32 @@ async def transaction_route(request: Request):
         proof = transaction.execution.proof.value
         transitions: DictList = []
 
-        storage_cost, _ = transaction.execution.cost
-        finalize_costs: list[int] = []
-
         for transition in transaction.execution.transitions:
             transitions.append({
                 "transition_id": str(transition.id),
                 "action": await function_signature(db, str(transition.program_id), str(transition.function_name)),
             })
-            # finalize_costs.append(await get_transition_finalize_cost(db, transition))
         if transaction.additional_fee.value is not None:
             transition = transaction.additional_fee.value.transition
-            # total_fee = get_fee_amount_from_transition(transition)
             fee_transition = {
                 "transition_id": str(transition.id),
                 "action": await function_signature(db, str(transition.program_id), str(transition.function_name)),
             }
         else:
-            total_fee = 0
             fee_transition = None
         ctx.update({
             "global_state_root": str(global_state_root),
             "proof": str(proof),
             "proof_trunc": str(proof)[:30] + "..." + str(proof)[-30:] if proof else None,
-            # "total_fee": total_fee,
-            "storage_cost": storage_cost,
-            "finalize_costs": finalize_costs,
-            # "priority_fee": total_fee - storage_cost - sum(finalize_costs),
             "transitions": transitions,
             "fee_transition": fee_transition,
         })
-    else:
+    elif isinstance(transaction, FeeTransaction):
         global_state_root = transaction.fee.global_state_root
         proof = transaction.fee.proof.value
         transitions = []
         rejected_transitions: DictList = []
         transition = transaction.fee.transition
-        total_fee = get_fee_amount_from_transition(transition)
         transitions.append({
             "transition_id": str(transition.id),
             "action": await function_signature(db, str(transition.program_id), str(transition.function_name)),
@@ -349,11 +330,8 @@ async def transaction_route(request: Request):
             rejected = confirmed_transaction.rejected
             if not isinstance(rejected, RejectedExecution):
                 raise HTTPException(status_code=550, detail="invalid rejected transaction")
-            storage_cost, _ = rejected.execution.cost
-            finalize_costs = []
             for transition in rejected.execution.transitions:
                 transition: Transition
-                # finalize_costs.append(await get_transition_finalize_cost(db, transition))
                 rejected_transitions.append({
                     "transition_id": str(transition.id),
                     "action": await function_signature(db, str(transition.program_id), str(transition.function_name)),
@@ -364,13 +342,12 @@ async def transaction_route(request: Request):
             "global_state_root": str(global_state_root),
             "proof": str(proof),
             "proof_trunc": str(proof)[:30] + "..." + str(proof)[-30:] if proof else None,
-            "total_fee": total_fee,
-            "storage_cost": storage_cost,
-            "finalize_costs": finalize_costs,
-            "priority_fee": total_fee - storage_cost - sum(finalize_costs),
             "transitions": transitions,
             "rejected_transitions": rejected_transitions,
         })
+
+    else:
+        raise HTTPException(status_code=550, detail="Unsupported transaction type")
 
     return JSONResponse(ctx)
 
@@ -574,19 +551,8 @@ async def transition_route(request: Request):
             case _:
                 raise HTTPException(status_code=550, detail="Not implemented")
 
-    """
     finalizes: list[str] = []
-    if transition.finalize.value is not None:
-        for finalize in transition.finalize.value:
-            match finalize:
-                case PlaintextValue():
-                    # noinspection PyUnresolvedReferences
-                    finalizes.append(str(finalize.plaintext))
-                case RecordValue():
-                    raise NotImplementedError
-                case _:
-                    raise HTTPException(status_code=550, detail="Not implemented")
-    """
+
     definition = await function_definition(db, str(transition.program_id), str(transition.function_name))
     ctx = {
         "ts_id": ts_id,
@@ -605,7 +571,7 @@ async def transition_route(request: Request):
         },
         "inputs": inputs,
         "outputs": outputs,
-        # "finalizes": finalizes,
+        "finalizes": finalizes,
     }
     return JSONResponse(ctx)
 
@@ -690,7 +656,7 @@ async def search_route(request: Request):
             "too_many": too_many,
         }
         return JSONResponse(ctx)
-    elif query.startswith("as1"):
+    elif query.startswith("au1"):
         # transition id
         transitions = await db.search_transition_id(query)
         if not transitions:

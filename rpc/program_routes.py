@@ -13,7 +13,7 @@ from aleo_types import u32, DeployTransaction, Deployment, Program, \
     AcceptedDeploy, AcceptedExecute, RejectedExecute, ExecuteTransaction, \
     FeeTransaction, RejectedExecution
 from db import Database
-from .utils import function_signature, out_of_sync_check, get_fee_amount_from_transition
+from .utils import function_signature, out_of_sync_check
 
 
 async def programs_route(request: Request):
@@ -99,7 +99,8 @@ async def program_route(request: Request):
     for call in recent_calls:
         call_height = call["height"]
         block = await db.get_block_by_height(u32(int(call_height)))
-        fee = 0
+        priority_fee = 0
+        base_fee = 0
         if block:
             for ct in block.transactions:
                 match ct:
@@ -108,36 +109,36 @@ async def program_route(request: Request):
                         if not isinstance(tx, DeployTransaction):
                             raise HTTPException(status_code=550, detail="Invalid transaction type")
                         if str(tx.fee.transition.id) == call["transition_id"]:
-                            fee = get_fee_amount_from_transition(tx.fee.transition)
+                            base_fee, priority_fee = tx.fee.amount
                             break
                     case AcceptedExecute():
                         tx = ct.transaction
                         if not isinstance(tx, ExecuteTransaction):
                             raise HTTPException(status_code=550, detail="Invalid transaction type")
-                        fee_transition = tx.additional_fee.value
-                        if fee_transition is not None:
-                            ts = fee_transition.transition
+                        additional_fee = tx.additional_fee.value
+                        if additional_fee is not None:
+                            ts = additional_fee.transition
                             if str(ts.id) == call["transition_id"]:
-                                fee = get_fee_amount_from_transition(fee_transition.transition)
+                                base_fee, priority_fee = additional_fee.amount
                                 break
                     case RejectedExecute():
                         tx = ct.transaction
                         if not isinstance(tx, FeeTransaction):
                             raise HTTPException(status_code=550, detail="Invalid transaction type")
                         if str(tx.fee.transition.id) == call["transition_id"]:
-                            fee = get_fee_amount_from_transition(tx.fee.transition)
+                            base_fee, priority_fee = tx.fee.amount
                         else:
                             rejected = ct.rejected
                             if not isinstance(rejected, RejectedExecution):
                                 raise HTTPException(status_code=550, detail="Database inconsistent")
                             for ts in rejected.execution.transitions:
                                 if str(ts.id) == call["transition_id"]:
-                                    fee = get_fee_amount_from_transition(ts)
+                                    base_fee, priority_fee = tx.fee.amount
                                     break
                     case _:
                         raise HTTPException(status_code=550, detail="Unsupported transaction type")
         call.update({
-            "fee": fee
+            "fee": base_fee+priority_fee
         })
     ctx: dict[str, Any] = {
         "program_id": str(program.id),
@@ -154,11 +155,12 @@ async def program_route(request: Request):
         "similar_count": await db.get_program_similar_count(program_id),
     }
     if transaction:
+        base_fee, priority_fee = transaction.fee.amount
         ctx.update({
             "height": str(height),
             "timestamp": deploy_time,
             "transaction_id": str(transaction.id),
-            "deploy_fee": get_fee_amount_from_transition(transaction.fee.transition),
+            "deploy_fee": base_fee+priority_fee,
             "owner": str(transaction.owner.address),
             "signature": str(transaction.owner.signature),
         })
