@@ -69,7 +69,9 @@ async def address_route(request: Request):
         raise HTTPException(status_code=400, detail="Missing address")
     solutions = await db.get_recent_solutions_by_address(address)
     programs = await db.get_recent_programs_by_address(address)
-    if len(solutions) == 0 and len(programs) == 0:
+    address_info = await db.get_address_info(address)
+    address_transactions = await db.get_recent_transactions_by_address(address)
+    if address_info is None:
         raise HTTPException(status_code=404, detail="Address not found")
     if len(solutions) > 0:
         solution_count = await db.get_solution_count_by_address(address)
@@ -122,6 +124,18 @@ async def address_route(request: Request):
             "timestamp": program_block.header.metadata.timestamp,
             "transaction_id": program_tx.id,
         })
+    recent_transaction: list[dict[str, Any]] = []
+    for transaction in address_transactions:
+        recent_transaction.append({
+            "height": transaction["height"],
+            "timestamp": transaction["timestamp"],
+            "transaction_id": transaction["transaction_id"],
+            "from": transaction["from_address"],
+            "to": transaction["to_address"], 
+            "credit": int(transaction["credit"]), 
+            "state": transaction["state"],
+            "function_name": transaction["function_name"]
+        })
     sync_info = await out_of_sync_check(db)
     network_1hour_speed = await db.get_network_speed(3600)
     network_1hour_reward = await db.get_network_reward(3600)
@@ -129,10 +143,13 @@ async def address_route(request: Request):
     ctx = {
         "address": address,
         "address_trunc": address[:14] + "..." + address[-6:],
-        "solutions": recent_solutions,
-        "programs": recent_programs,
-        "total_rewards": str(total_rewards),
-        "total_incentive": str(total_incentive),
+        "total_credit": int(address_info["total_credit"]),
+        "type": address_info["type"],
+        "owner_staking": address_info["owner_staking"],
+        "delegators_staking": address_info["delegators_staking"],
+        "if_open": address_info["if_open"],
+        "total_rewards": int(total_rewards),
+        "total_incentive": int(total_incentive),
         "total_solutions": solution_count,
         "total_programs": program_count,
         "speed": float(speed),
@@ -143,8 +160,12 @@ async def address_route(request: Request):
             "network_1hour_speed": float(network_1hour_speed),
             "network_1hour_reward": int(network_1hour_reward)
 
-        }
+        },
+        "solutions": recent_solutions,
+        "programs": recent_programs,
+        "transaction": recent_transaction
     }
+
     return JSONResponse(ctx)
 
 

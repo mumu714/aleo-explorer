@@ -2603,7 +2603,7 @@ ALTER TABLE ONLY explorer.leaderboard
     ADD CONSTRAINT leaderboard_pk PRIMARY KEY (address);
 
 --
--- Name: address_15min_hashrate address_15min_hashrate_pk; Type: CONSTRAINT; Schema: explorer; Owner: -
+-- Name: coinbase coinbase_pk; Type: CONSTRAINT; Schema: explorer; Owner: -
 --
 
 ALTER TABLE ONLY explorer.coinbase

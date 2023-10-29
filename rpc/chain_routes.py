@@ -186,12 +186,12 @@ async def block_solution_route(request: Request):
     except:
         raise HTTPException(status_code=400, detail="Invalid page")
     solution_count = await db.get_solution_count_by_height(height)
-    total_pages = (solution_count // 50) + 1
+    total_pages = (solution_count // 10) + 1
     if page < 1 or page > total_pages:
         raise HTTPException(status_code=400, detail="Invalid page")
-    start = 50 * (page - 1)
+    start = 10 * (page - 1)
     css: DictList = []
-    solutions = await db.get_solution_by_height(height, start, start + 50)
+    solutions = await db.get_solution_by_height(height, start, start + 10)
     for solution in solutions:
         css.append({
             "address": solution["address"],
@@ -767,7 +767,6 @@ async def coinbase_route(request: Request):
     if not total_blocks:
         raise HTTPException(status_code=550, detail="No blocks found")
     coinbases = await db.get_coinbase()
-    print("get block")
     data: list[dict[str, Any]] = []
     for coinbase in coinbases:
         data.append({
@@ -777,5 +776,4 @@ async def coinbase_route(request: Request):
     ctx = {
         "coinbase": data,
     }
-    print(ctx)
     return JSONResponse(ctx)
