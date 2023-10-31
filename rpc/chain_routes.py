@@ -1,6 +1,7 @@
 from io import BytesIO
-from typing import Any, cast
+from typing import Any, cast, Optional, ParamSpec, TypeVar, Callable, Awaitable
 
+import aleo_explorer_rust
 from starlette.exceptions import HTTPException
 from starlette.requests import Request
 from starlette.responses import RedirectResponse
@@ -9,15 +10,31 @@ from starlette.responses import JSONResponse
 from aleo_types import u32, Transition, ExecuteTransaction, PrivateTransitionInput, \
     RecordTransitionInput, TransitionOutput, RecordTransitionOutput, DeployTransaction, Program, \
     PublicTransitionInput, ConfirmedTransaction, Transaction, \
-    PublicTransitionOutput, PrivateTransitionOutput, PlaintextValue, ExternalRecordTransitionInput, \
+    PublicTransitionOutput, PrivateTransitionOutput, ExternalRecordTransitionInput, \
     ExternalRecordTransitionOutput, FutureTransitionOutput, AcceptedDeploy, AcceptedExecute, RejectedExecute, \
-    FeeTransaction, RejectedDeploy, RejectedExecution, RecordValue, Identifier, Entry, Subdag
+    FeeTransaction, RejectedDeploy, RejectedExecution, Future, PlaintextArgument, FutureArgument, \
+    StructPlaintext, Finalize, PlaintextFinalizeType, StructPlaintextType, UpdateKeyValue, Value, \
+    Plaintext, RemoveKeyValue, FinalizeOperation
+from aleo_types.vm_block import Entry
+from aleo_types.vm_instruction import Identifier
 from db import Database
+from util.global_cache import get_program
 from .utils import function_signature, out_of_sync_check, function_definition
 from .format import *
 
+try:
+    from line_profiler import profile
+except ImportError:
+    P = ParamSpec('P')
+    R = TypeVar('R')
+    def profile(func: Callable[P, Awaitable[R]]) -> Callable[P, Awaitable[R]]:
+        async def wrapper(*args: P.args, **kwargs: P.kwargs) -> R:
+            return await func(*args, **kwargs)
+        return wrapper
+    
 DictList = list[dict[str, Any]]
 
+@profile
 async def block_route(request: Request):
     db: Database = request.app.state.db
     height = request.query_params.get("h")
@@ -293,7 +310,7 @@ async def transaction_route(request: Request):
             "program_id": str(program.id),
             "transitions": [{
                 "transition_id": str(transaction.fee.transition.id),
-                "action": await function_signature(db, str(fee_transition.program_id), str(fee_transition.function_name)),
+                "action": await function_signature(db, str(fee_transition.program_id), str(fee_transition.function_name), False),
             }],
         })
     elif isinstance(transaction, ExecuteTransaction):
@@ -304,13 +321,14 @@ async def transaction_route(request: Request):
         for transition in transaction.execution.transitions:
             transitions.append({
                 "transition_id": str(transition.id),
-                "action": await function_signature(db, str(transition.program_id), str(transition.function_name)),
+                "action": await function_signature(db, str(transition.program_id), str(transition.function_name), False),
             })
         if transaction.additional_fee.value is not None:
-            transition = transaction.additional_fee.value.transition
+            additional_fee = transaction.additional_fee.value
+            transition = additional_fee.transition
             fee_transition = {
                 "transition_id": str(transition.id),
-                "action": await function_signature(db, str(transition.program_id), str(transition.function_name)),
+                "action": await function_signature(db, str(transition.program_id), str(transition.function_name),False),
             }
         else:
             fee_transition = None
@@ -329,7 +347,7 @@ async def transaction_route(request: Request):
         transition = transaction.fee.transition
         transitions.append({
             "transition_id": str(transition.id),
-            "action": await function_signature(db, str(transition.program_id), str(transition.function_name)),
+            "action": await function_signature(db, str(transition.program_id), str(transition.function_name),False),
         })
         if isinstance(confirmed_transaction, RejectedExecute):
             rejected = confirmed_transaction.rejected
@@ -353,6 +371,66 @@ async def transaction_route(request: Request):
 
     else:
         raise HTTPException(status_code=550, detail="Unsupported transaction type")
+    
+    fos: list[FinalizeOperation] = []
+    for ct in block.transactions:
+        for fo in ct.finalize:
+            if isinstance(fo, (UpdateKeyValue, RemoveKeyValue)):
+                fos.append(fo)
+    mhs = await db.get_transaction_mapping_history_by_height(block.height)
+    if len(fos) != len(mhs):
+        mapping_operations = None
+    else:
+        indices: list[int] = []
+        for fo in confirmed_transaction.finalize:
+            if isinstance(fo, (UpdateKeyValue, RemoveKeyValue)):
+                indices.append(fos.index(fo))
+        mapping_operations: Optional[list[dict[str, Any]]] = []
+        for i in indices:
+            fo = fos[i]
+            mh = mhs[i]
+            if str(fo.mapping_id) != str(mh["mapping_id"]):
+                mapping_operations = None
+                break
+            if isinstance(fo, UpdateKeyValue):
+                if mh["value"] is None:
+                    mapping_operations = None
+                    break
+                key_id = aleo_explorer_rust.get_key_id(mh["program_id"], mh["mapping"], mh["key"]) 
+                value_id = aleo_explorer_rust.get_value_id(str(key_id), mh["value"])
+                if value_id != str(fo.value_id):
+                    mapping_operations = None
+                    break
+                previous_value = await db.get_mapping_history_previous_value(mh["id"], mh["key_id"])
+                if previous_value is not None:
+                    previous_value = str(Value.load(BytesIO(previous_value)))
+                mapping_operations.append({
+                    "type": "Update",
+                    "program_id": mh["program_id"],
+                    "mapping_name": mh["mapping"],
+                    "key": str(Plaintext.load(BytesIO(mh["key"]))),
+                    "value": str(Value.load(BytesIO(mh["value"]))),
+                    "previous_value": previous_value,
+                })
+            elif isinstance(fo, RemoveKeyValue):
+                if mh["value"] is not None:
+                    mapping_operations = None
+                    break
+                previous_value = await db.get_mapping_history_previous_value(mh["id"], mh["key_id"])
+                if previous_value is not None:
+                    previous_value = str(Value.load(BytesIO(previous_value)))
+                else:
+                    mapping_operations = None
+                    break
+                mapping_operations.append({
+                    "type": "Remove",
+                    "program_id": mh["program_id"],
+                    "mapping_name": mh["mapping"],
+                    "key": str(Plaintext.load(BytesIO(mh["key"]))),
+                    "previous_value": previous_value,
+                })
+
+    ctx["mapping_operations"] = mapping_operations
 
     return JSONResponse(ctx)
 
@@ -463,102 +541,111 @@ async def transition_route(request: Request):
 
     inputs: DictList = []
     for input_ in transition.inputs:
-        match input_:
-            # sudo TODO: report pycharm bug
-            case PublicTransitionInput():
-                # noinspection PyUnresolvedReferences
-                inputs.append({
-                    "type": "Public",
-                    "plaintext_hash": str(input_.plaintext_hash),
-                    "plaintext": str(input_.plaintext.value),
-                })
-            case PrivateTransitionInput():
-                # noinspection PyUnresolvedReferences
-                inputs.append({
-                    "type": "Private",
-                    "ciphertext_hash": str(input_.ciphertext_hash),
-                    "ciphertext": str(input_.ciphertext.value),
-                })
-            case RecordTransitionInput():
-                # noinspection PyUnresolvedReferences
-                inputs.append({
-                    "type": "Record",
-                    "serial_number": str(input_.serial_number),
-                    "tag": str(input_.tag),
-                })
-            case ExternalRecordTransitionInput():
-                # noinspection PyUnresolvedReferences
-                inputs.append({
-                    "type": "External record",
-                    "commitment": str(input_.input_commitment),
-                })
-            case _:
-                raise HTTPException(status_code=550, detail="Not implemented")
+        if isinstance(input_, PublicTransitionInput):
+            inputs.append({
+                "type": "Public",
+                "plaintext_hash": str(input_.plaintext_hash),
+                "plaintext": str(input_.plaintext.value),
+            })
+        elif isinstance(input_, PrivateTransitionInput):
+            inputs.append({
+                "type": "Private",
+                "ciphertext_hash": str(input_.ciphertext_hash),
+                "ciphertext": str(input_.ciphertext.value),
+            })
+        elif isinstance(input_, RecordTransitionInput):
+            inputs.append({
+                "type": "Record",
+                "serial_number": str(input_.serial_number),
+                "tag": str(input_.tag),
+            })
+        elif isinstance(input_, ExternalRecordTransitionInput):
+            inputs.append({
+                "type": "External record",
+                "commitment": str(input_.input_commitment),
+            })
+        else:
+            raise HTTPException(status_code=550, detail="Not implemented")
 
     outputs: DictList = []
+    self_future: Optional[Future] = None
     for output in transition.outputs:
         output: TransitionOutput
-        match output:
-            case PublicTransitionOutput():
-                # noinspection PyUnresolvedReferences
-                outputs.append({
-                    "type": "Public",
-                    "plaintext_hash": str(output.plaintext_hash),
-                    "plaintext": str(output.plaintext.value),
-                })
-            case PrivateTransitionOutput():
-                # noinspection PyUnresolvedReferences
-                outputs.append({
-                    "type": "Private",
-                    "ciphertext_hash": str(output.ciphertext_hash),
-                    "ciphertext": str(output.ciphertext.value),
-                })
-            case RecordTransitionOutput():
-                # noinspection PyUnresolvedReferences
-                output_data: dict[str, Any] = {
-                    "type": "Record",
-                    "commitment": str(output.commitment),
-                    "checksum": str(output.checksum),
-                    "record": str(output.record_ciphertext.value),
+        if isinstance(output, PublicTransitionOutput):
+            outputs.append({
+                "type": "Public",
+                "plaintext_hash": str(output.plaintext_hash),
+                "plaintext": str(output.plaintext.value),
+            })
+        elif isinstance(output, PrivateTransitionOutput):
+            outputs.append({
+                "type": "Private",
+                "ciphertext_hash": str(output.ciphertext_hash),
+                "ciphertext": str(output.ciphertext.value),
+            })
+        elif isinstance(output, RecordTransitionOutput):
+            output_data: dict[str, Any] = {
+                "type": "Record",
+                "commitment": str(output.commitment),
+                "checksum": str(output.checksum),
+                "record": str(output.record_ciphertext.value),
+            }
+            record = output.record_ciphertext.value
+            if record is not None:
+                record_data: dict[str, Any] = {
+                    "owner": str(record.owner),
                 }
-                # noinspection PyUnresolvedReferences
-                record = output.record_ciphertext.value
-                if record is not None:
-                    record_data: dict[str, Any] = {
-                        "owner": str(record.owner),
-                    }
-                    data: list[tuple[str, str]] = []
-                    for identifier, entry in record.data:
-                        data.append((str(identifier), str(entry)))
-                    record_data["data"] = data
-                    output_data["record_data"] = record_data
-                outputs.append(output_data)
-            case ExternalRecordTransitionOutput():
-                # noinspection PyUnresolvedReferences
-                outputs.append({
-                    "type": "External record",
-                    "commitment": output.commitment,
+                data: list[tuple[Identifier, Entry[Any]]] = []
+                for identifier, entry in record.data:
+                    data.append((str(identifier), str(entry))) # type: ignore
+                record_data["data"] = data
+                output_data["record_data"] = record_data
+            outputs.append(output_data)
+        elif isinstance(output, ExternalRecordTransitionOutput):
+            outputs.append({
+                "type": "External record",
+                "commitment": str(output.commitment),
+            })
+        elif isinstance(output, FutureTransitionOutput):
+            future = output.future.value
+            if future is not None:
+                if future.program_id == program_id and future.function_name == function_name:
+                    self_future = future
+                future = {
+                    "program_id": str(future.program_id),
+                    "function_name": str(future.function_name),
+                    "arguments": [str(i.plaintext) for i in future.arguments] # type: ignore
+                }
+            outputs.append({
+                "type": "Future",
+                "future_hash": str(output.future_hash),
+                "future": future,
+            })
+        else:
+            raise HTTPException(status_code=550, detail="Not implemented")
+
+    finalizes: list[dict[str, str]] = []
+    if self_future is not None:
+        for i, argument in enumerate(self_future.arguments):
+            if isinstance(argument, PlaintextArgument):
+                struct_type = ""
+                if isinstance(argument.plaintext, StructPlaintext):
+                    program = await get_program(db, str(transition.program_id))
+                    finalize = cast(Finalize, program.functions[transition.function_name].finalize.value)
+                    finalize_type = cast(PlaintextFinalizeType, finalize.inputs[i].finalize_type)
+                    struct_type = str(cast(StructPlaintextType, finalize_type.plaintext_type).struct)
+                finalizes.append({
+                    "type": "Plaintext",
+                    "struct_type": struct_type,
+                    "value": str(argument.plaintext)
                 })
-            case FutureTransitionOutput():
-                # noinspection PyUnresolvedReferences
-                future = {}
-                if output.future.value is not None:
-                    future = {
-                        "program_id": str(output.future.value.program_id),
-                        "function_name": str(output.future.value.function_name),
-                        "arguments": [str(i.plaintext) for i in output.future.value.arguments] # type: ignore
-                    }
-                outputs.append({
+            elif isinstance(argument, FutureArgument):
+                future = argument.future
+                finalizes.append({
                     "type": "Future",
-                    "future_hash": str(output.future_hash),
-                    "future": future
+                    "value": f"{future.program_id}/{future.function_name}(...)",
                 })
-            case _:
-                raise HTTPException(status_code=550, detail="Not implemented")
 
-    finalizes: list[str] = []
-
-    definition = await function_definition(db, str(transition.program_id), str(transition.function_name))
     ctx = {
         "ts_id": ts_id,
         "ts_id_trunc": str(ts_id)[:12] + "..." + str(ts_id)[-6:],
@@ -569,11 +656,6 @@ async def transition_route(request: Request):
         "tpk": str(tpk),
         "tcm": str(tcm),
         "function_signature": await function_signature(db, str(transition.program_id), str(transition.function_name)),
-        "function_definition": {
-            "input": definition["input"], # type: ignore
-            "output": definition["output"], # type: ignore
-            "finalize": definition["finalize"] # type: ignore
-        },
         "inputs": inputs,
         "outputs": outputs,
         "finalizes": finalizes,
@@ -736,8 +818,8 @@ async def blocks_route(request: Request):
         raise HTTPException(status_code=550, detail="No blocks found")
     if offset < 0 or offset + limit > total_blocks:
         raise HTTPException(status_code=400, detail="Invalid page")
-    start = offset
-    blocks = await db.get_blocks_range_fast(start + limit, start)
+    start = total_blocks - offset
+    blocks = await db.get_blocks_range_fast(start, start - limit)
     
     sync_info = await out_of_sync_check(db)
     ctx = {
