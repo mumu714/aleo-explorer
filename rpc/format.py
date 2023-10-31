@@ -31,8 +31,13 @@ def format_block(block: Block):
             "ratifications": rs
         }
 
-def format_number(block: dict[str, Any]) -> dict[str, Any]:
-    for key, value in block.items():
+def format_number(data: dict[str, Any]) -> dict[str, Any]:
+    for key, value in data.items():
         if isinstance(value, Decimal):
-            block[key] = str(int(value))
-    return block
+            data[key] = str(int(value))
+    return data
+
+def format_aleo_credit(mc: int | Decimal):
+    if mc == "-":
+        return "-"
+    return int(Decimal(mc) / 1_000_000)
