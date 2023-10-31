@@ -1,7 +1,7 @@
 from io import BytesIO
 from typing import Any, Optional
 
-import aleo
+import aleo_explorer_rust
 from starlette.datastructures import UploadFile
 from starlette.exceptions import HTTPException
 from starlette.requests import Request
@@ -14,16 +14,22 @@ from aleo_types import u32, DeployTransaction, Deployment, Program, \
     FeeTransaction, RejectedExecution
 from db import Database
 from .utils import function_signature, out_of_sync_check
+from .format import *
 
 
 async def programs_route(request: Request):
     db: Database = request.app.state.db
     try:
-        page = request.query_params.get("p")
-        if page is None:
-            page = 1
+        limit = request.query_params.get("limit")
+        offset = request.query_params.get("offset")
+        if limit is None:
+            limit = 50
         else:
-            page = int(page)
+            limit = int(limit)
+        if offset is None:
+            offset = 0
+        else:
+            offset = int(offset)
     except:
         raise HTTPException(status_code=400, detail="Invalid page")
     no_helloworld = request.query_params.get("no_helloworld", False)
@@ -32,18 +38,15 @@ async def programs_route(request: Request):
     except:
         no_helloworld = False
     total_programs = await db.get_program_count(no_helloworld=no_helloworld)
-    total_pages = (total_programs // 50) + 1
-    if page < 1 or page > total_pages:
+    if offset < 0 or offset > total_programs:
         raise HTTPException(status_code=400, detail="Invalid page")
-    start = 50 * (page - 1)
-    programs = await db.get_programs(start, start + 50, no_helloworld=no_helloworld)
+    programs = await db.get_programs(offset, offset + limit, no_helloworld=no_helloworld)
     builtin_programs = await db.get_builtin_programs()
 
     sync_info = await out_of_sync_check(db)
     ctx = {
-        "programs": programs + builtin_programs,
-        "page": page,
-        "total_pages": total_pages,
+        "programs": [format_number(program) for program in programs + builtin_programs],
+        "total_programs": total_programs,
         "no_helloworld": no_helloworld,
         "sync_info": sync_info,
     }
@@ -270,7 +273,7 @@ async def submit_source_route(request: Request):
             return RedirectResponse(url=f"/upload_source?id={program_id}&message=Invalid form data")
         import_data.append((i, p))
     try:
-        compiled = aleo.compile_program(source, program_id.split(".")[0], import_data)
+        compiled = aleo_explorer_rust.compile_program(source, program_id.split(".")[0], import_data)
     except RuntimeError as e:
         if len(str(e)) > 200:
             msg = str(e)[:200] + "[trimmed]"
