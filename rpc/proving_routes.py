@@ -116,6 +116,7 @@ async def address_route(request: Request):
         total_incentive = 0
         speed = 0
         interval = 0
+    transactions_count = await db.get_transition_count_by_address(address)
     program_count = await db.get_program_count_by_address(address)
     interval_text = {
         0: "never",
@@ -195,6 +196,11 @@ async def address_route(request: Request):
         transfer_out = 0
     if fee is None:
         fee = 0
+    address_type = ""
+    if committee_state:
+        address_type = "Validator"
+    elif solution_count > 0:
+        address_type = "Prover"
 
     recent_transaction: list[dict[str, Any]] = []
     for transition_data in transitions:
@@ -238,10 +244,12 @@ async def address_route(request: Request):
     ctx = {
         "address": address,
         "address_trunc": address[:14] + "..." + address[-6:],
+        "address_type": address_type,
         "total_rewards": int(total_rewards),
         "total_incentive": int(total_incentive),
         "total_solutions": solution_count,
         "total_programs": program_count,
+        "total_transactions": transactions_count,
         "speed": float(speed),
         "timespan": interval_text[interval],
         "public_balance": public_balance,
