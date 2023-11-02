@@ -117,6 +117,7 @@ async def address_route(request: Request):
         speed = 0
         interval = 0
     transactions_count = await db.get_transition_count_by_address(address)
+    function_names = await db.get_transition_function_name_by_address(address)
     program_count = await db.get_program_count_by_address(address)
     interval_text = {
         0: "never",
@@ -214,11 +215,16 @@ async def address_route(request: Request):
             if isinstance(output, FutureTransitionOutput):
                 future = output.future.value
                 if future is not None:
-                    future_arguments = future.arguments
-                    if len(future_arguments) == 3:
-                        from_address = str(future_arguments[0].plaintext) # type: ignore
-                        to_address = str(future_arguments[1].plaintext.literal.primitive) # type: ignore
-                        credit = format_aleo_credit(future_arguments[2].plaintext.literal.primitive) # type: ignore
+                    for i, argument in enumerate(future.arguments):
+                        if isinstance(argument, PlaintextArgument):
+                            plaintext = argument.plaintext
+                            if isinstance(plaintext, LiteralPlaintext) and plaintext.literal.type == Literal.Type.Address:
+                                if i == 0:
+                                    from_address = str(plaintext.literal.primitive)
+                                if i == 1:
+                                    to_address = str(plaintext.literal.primitive)
+                            if isinstance(plaintext, LiteralPlaintext) and plaintext.literal.type == Literal.Type.U64:
+                                credit = format_aleo_credit(plaintext.literal.primitive) # type: ignore
         state = ""
         if transition_data["type"].startswith("Accepted"):
             state = "Accepted"
@@ -250,6 +256,7 @@ async def address_route(request: Request):
         "total_solutions": solution_count,
         "total_programs": program_count,
         "total_transactions": transactions_count,
+        "function_names": function_names,
         "speed": float(speed),
         "timespan": interval_text[interval],
         "public_balance": public_balance,
@@ -273,7 +280,6 @@ async def address_route(request: Request):
     }
 
     return JSONResponse(ctx)
-
 
 async def address_solution_route(request: Request):
     db: Database = request.app.state.db
@@ -352,11 +358,16 @@ async def address_transaction_route(request: Request):
             if isinstance(output, FutureTransitionOutput):
                 future = output.future.value
                 if future is not None:
-                    future_arguments = future.arguments
-                    if len(future_arguments) == 3:
-                        from_address = str(future_arguments[0].plaintext) # type: ignore
-                        to_address = str(future_arguments[1].plaintext.literal.primitive) # type: ignore
-                        credit = format_aleo_credit(future_arguments[2].plaintext.literal.primitive) # type: ignore
+                    for i, argument in enumerate(future.arguments):
+                        if isinstance(argument, PlaintextArgument):
+                            plaintext = argument.plaintext
+                            if isinstance(plaintext, LiteralPlaintext) and plaintext.literal.type == Literal.Type.Address:
+                                if i == 0:
+                                    from_address = str(plaintext.literal.primitive)
+                                if i == 1:
+                                    to_address = str(plaintext.literal.primitive)
+                            if isinstance(plaintext, LiteralPlaintext) and plaintext.literal.type == Literal.Type.U64:
+                                credit = format_aleo_credit(plaintext.literal.primitive) # type: ignore
         state = ""
         if transition_data["type"].startswith("Accepted"):
             state = "Accepted"
@@ -381,6 +392,81 @@ async def address_transaction_route(request: Request):
         "address_trunc": address[:14] + "..." + address[-6:],
         "transactions": data,
         "transaction_count": transactions_count,
+        "sync_info": sync_info,
+    }
+    return JSONResponse(ctx)
+
+async def address_function_transaction_route(request: Request):
+    db: Database = request.app.state.db
+    address = request.query_params.get("a")
+    function = request.query_params.get("f")
+    if address is None:
+        raise HTTPException(status_code=400, detail="Missing address")
+    if function is None:
+        raise HTTPException(status_code=400, detail="Missing function")
+    try:
+        limit = request.query_params.get("limit")
+        offset = request.query_params.get("offset")
+        if limit is None:
+            limit = 10
+        else:
+            limit = int(limit)
+        if offset is None:
+            offset = 0
+        else:
+            offset = int(offset)
+    except:
+        raise HTTPException(status_code=400, detail="Invalid page")
+    transactions_count = await db.get_transition_count_by_address_and_function(address, function)
+    if offset < 0 or offset > transactions_count:
+        raise HTTPException(status_code=400, detail="Invalid page")
+    transitions = await db.get_transition_by_address_and_function(address, function, offset, offset + limit)
+    data: list[dict[str, Any]] = []
+    for transition_data in transitions:
+        transition = await db.get_transition(transition_data["transition_id"])
+        if transition is None:
+            raise HTTPException(status_code=550, detail="Transition not found")
+        from_address = ""
+        to_address = ""
+        credit = 0
+        for output in transition.outputs:
+            if isinstance(output, FutureTransitionOutput):
+                future = output.future.value
+                if future is not None:
+                    for i, argument in enumerate(future.arguments):
+                        if isinstance(argument, PlaintextArgument):
+                            plaintext = argument.plaintext
+                            if isinstance(plaintext, LiteralPlaintext) and plaintext.literal.type == Literal.Type.Address:
+                                if i == 0:
+                                    from_address = str(plaintext.literal.primitive)
+                                if i == 1:
+                                    to_address = str(plaintext.literal.primitive)
+                            if isinstance(plaintext, LiteralPlaintext) and plaintext.literal.type == Literal.Type.U64:
+                                credit = format_aleo_credit(plaintext.literal.primitive) # type: ignore
+        state = ""
+        if transition_data["type"].startswith("Accepted"):
+            state = "Accepted"
+        elif transition_data["type"].startswith("Rejected"):
+            state = "Rejected"
+        data.append({
+            "transition_id": transition_data["transition_id"],
+            "height": transition_data["height"],
+            "timestamp": transition_data["timestamp"],
+            "transaction_id": transition_data["transaction_id"],
+            "from": from_address,
+            "to": to_address, 
+            "credit": credit, 
+            "state": state,
+            "program_id": str(transition.program_id),
+            "function_name": str(transition.function_name),
+        })
+    
+    sync_info = await out_of_sync_check(db)
+    ctx = {
+        "address": address,
+        "address_trunc": address[:14] + "..." + address[-6:],
+        "transaction_count": transactions_count,
+        "transactions": data,
         "sync_info": sync_info,
     }
     return JSONResponse(ctx)
