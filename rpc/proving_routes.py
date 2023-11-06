@@ -390,8 +390,8 @@ async def address_transaction_route(request: Request):
     ctx = {
         "address": address,
         "address_trunc": address[:14] + "..." + address[-6:],
-        "transactions": data,
         "transaction_count": transactions_count,
+        "transactions": data,
         "sync_info": sync_info,
     }
     return JSONResponse(ctx)

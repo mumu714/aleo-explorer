@@ -1,1 +1,1 @@
-from .rpc import app, run
+from .rpc import app, run, run_profile
