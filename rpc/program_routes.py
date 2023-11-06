@@ -9,8 +9,8 @@ from starlette.responses import RedirectResponse
 from starlette.responses import JSONResponse
 
 import disasm.aleo
-from aleo_types import u32, DeployTransaction, Deployment, Program, \
-    AcceptedDeploy, AcceptedExecute, RejectedExecute, ExecuteTransaction, \
+from aleo_types import DeployTransaction, Deployment, Program, \
+    AcceptedDeploy, u32, AcceptedExecute, RejectedExecute, ExecuteTransaction, \
     FeeTransaction, RejectedExecution
 from db import Database
 from .utils import function_signature, out_of_sync_check
@@ -143,6 +143,7 @@ async def program_route(request: Request):
         call.update({
             "fee": base_fee+priority_fee
         })
+    sync_info = await out_of_sync_check(db)
     ctx: dict[str, Any] = {
         "program_id": str(program.id),
         "times_called": int(await db.get_program_called_times(program_id)),
@@ -156,6 +157,7 @@ async def program_route(request: Request):
         "has_leo_source": has_leo_source,
         "recent_calls": recent_calls,
         "similar_count": await db.get_program_similar_count(program_id),
+        "sync_info": sync_info,
     }
     if transaction:
         base_fee, priority_fee = transaction.fee.amount
@@ -241,6 +243,7 @@ async def upload_source_route(request: Request):
             else:
                 import_programs.append(None)
     message = request.query_params.get("message")
+    sync_info = await out_of_sync_check(db)
     ctx = {
         "program_id": program_id,
         "imports": imports,
@@ -248,6 +251,7 @@ async def upload_source_route(request: Request):
         "has_leo_source": has_leo_source,
         "message": message,
         "source": source,
+        "sync_info": sync_info,
     }
     return JSONResponse(ctx)
 

@@ -17,8 +17,10 @@ from .format import *
 async def calc_route(request: Request):
     db: Database = request.app.state.db
     proof_target = (await db.get_latest_block()).header.metadata.proof_target
+    sync_info = await out_of_sync_check(db)
     ctx = {
         "proof_target": proof_target,
+        "sync_info": sync_info,
     }
     return JSONResponse(ctx)
 
@@ -203,7 +205,7 @@ async def address_route(request: Request):
     elif solution_count > 0:
         address_type = "Prover"
 
-    recent_transaction: list[dict[str, Any]] = []
+    recent_transitions: list[dict[str, Any]] = []
     for transition_data in transitions:
         transition = await db.get_transition(transition_data["transition_id"])
         if transition is None:
@@ -230,7 +232,7 @@ async def address_route(request: Request):
             state = "Accepted"
         elif transition_data["type"].startswith("Rejected"):
             state = "Rejected"
-        recent_transaction.append({
+        recent_transitions.append({
             "transition_id": transition_data["transition_id"],
             "height": transition_data["height"],
             "timestamp": transition_data["timestamp"],
@@ -275,7 +277,7 @@ async def address_route(request: Request):
         },
         "solutions": recent_solutions,
         "programs": recent_programs,
-        "transaction": recent_transaction,
+        "transaction": recent_transitions,
         "sync_info": sync_info,
     }
 
