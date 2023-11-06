@@ -123,3 +123,7 @@ async def run():
     server.start()
     while True:
         await asyncio.sleep(3600)
+
+async def run_profile():
+    config = uvicorn.Config("rpc:app", reload=True, log_level="info", port=8889)
+    await uvicorn.Server(config).serve()
