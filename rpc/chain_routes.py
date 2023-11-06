@@ -8,15 +8,13 @@ from starlette.responses import RedirectResponse
 from starlette.responses import JSONResponse
 
 from aleo_types import u32, Transition, ExecuteTransaction, PrivateTransitionInput, \
-    RecordTransitionInput, TransitionOutput, RecordTransitionOutput, DeployTransaction, Program, \
-    PublicTransitionInput, ConfirmedTransaction, Transaction, \
+    RecordTransitionInput, TransitionOutput, RecordTransitionOutput, DeployTransaction, PublicTransitionInput, \
     PublicTransitionOutput, PrivateTransitionOutput, ExternalRecordTransitionInput, \
-    ExternalRecordTransitionOutput, FutureTransitionOutput, AcceptedDeploy, AcceptedExecute, RejectedExecute, \
-    FeeTransaction, RejectedDeploy, RejectedExecution, Future, PlaintextArgument, FutureArgument, \
-    StructPlaintext, Finalize, PlaintextFinalizeType, StructPlaintextType, UpdateKeyValue, Value, \
-    Plaintext, RemoveKeyValue, FinalizeOperation
-from aleo_types.vm_block import Entry
-from aleo_types.vm_instruction import Identifier
+    ExternalRecordTransitionOutput, AcceptedDeploy, AcceptedExecute, RejectedExecute, \
+    FeeTransaction, RejectedDeploy, RejectedExecution, Identifier, Entry, ConfirmedTransaction, \
+    Transaction, FutureTransitionOutput, Future, PlaintextArgument, FutureArgument, StructPlaintext, Finalize, \
+    PlaintextFinalizeType, StructPlaintextType, UpdateKeyValue, Value, Plaintext, RemoveKeyValue, FinalizeOperation, \
+    Program
 from db import Database
 from util.global_cache import get_program
 from .utils import function_signature, out_of_sync_check, function_definition
@@ -31,7 +29,7 @@ except ImportError:
         async def wrapper(*args: P.args, **kwargs: P.kwargs) -> R:
             return await func(*args, **kwargs)
         return wrapper
-    
+
 DictList = list[dict[str, Any]]
 
 @profile
@@ -76,7 +74,7 @@ async def block_route(request: Request):
     total_base_fee = 0
     total_priority_fee = 0
     total_burnt_fee = 0
-    for ct in block.transactions:
+    for ct in block.transactions.transactions:
         fee_breakdown = await ct.get_fee_breakdown(db)
         base_fee = fee_breakdown.storage_cost + fee_breakdown.namespace_cost + sum(fee_breakdown.finalize_costs)
         priority_fee = fee_breakdown.priority_fee
@@ -160,6 +158,7 @@ async def block_route(request: Request):
                         "signatures": [str(i[0]) for i in certificate.signatures] 
                     })
 
+    sync_info = await out_of_sync_check(db)
     ctx = {
         "block": format_block(block),
         "block_hash_trunc": str(block_hash)[:12] + "..." + str(block_hash)[-6:],
@@ -171,7 +170,8 @@ async def block_route(request: Request):
         "total_burnt_fee": total_burnt_fee,
         "transactions": txs,
         "coinbase_solutions": [format_number(cs) for cs in css],
-        "subdag": subs
+        "subdag": subs,
+        "sync_info": sync_info,
     }
     return JSONResponse(ctx)
 
@@ -285,6 +285,7 @@ async def transaction_route(request: Request):
 
     storage_cost, namespace_cost, finalize_costs, priority_fee, burnt = await confirmed_transaction.get_fee_breakdown(db)
 
+    sync_info = await out_of_sync_check(db)
     ctx: dict[str, Any] = {
         "tx_id": tx_id,
         "tx_id_trunc": str(tx_id)[:12] + "..." + str(tx_id)[-6:],
@@ -299,6 +300,7 @@ async def transaction_route(request: Request):
         "priority_fee": priority_fee,
         "burnt_fee": burnt,
         "reject_reason": await db.get_transaction_reject_reason(tx_id) if transaction_state == "Rejected" else None,
+        "sync_info": sync_info,
     }
 
     if isinstance(transaction, DeployTransaction):
@@ -328,7 +330,7 @@ async def transaction_route(request: Request):
             transition = additional_fee.transition
             fee_transition = {
                 "transition_id": str(transition.id),
-                "action": await function_signature(db, str(transition.program_id), str(transition.function_name),False),
+                "action": await function_signature(db, str(transition.program_id), str(transition.function_name), False),
             }
         else:
             fee_transition = None
@@ -347,7 +349,7 @@ async def transaction_route(request: Request):
         transition = transaction.fee.transition
         transitions.append({
             "transition_id": str(transition.id),
-            "action": await function_signature(db, str(transition.program_id), str(transition.function_name),False),
+            "action": await function_signature(db, str(transition.program_id), str(transition.function_name), False),
         })
         if isinstance(confirmed_transaction, RejectedExecute):
             rejected = confirmed_transaction.rejected
@@ -371,7 +373,7 @@ async def transaction_route(request: Request):
 
     else:
         raise HTTPException(status_code=550, detail="Unsupported transaction type")
-    
+
     fos: list[FinalizeOperation] = []
     for ct in block.transactions:
         for fo in ct.finalize:
@@ -396,7 +398,7 @@ async def transaction_route(request: Request):
                 if mh["value"] is None:
                     mapping_operations = None
                     break
-                key_id = aleo_explorer_rust.get_key_id(mh["program_id"], mh["mapping"], mh["key"]) 
+                key_id = aleo_explorer_rust.get_key_id(mh["program_id"], mh["mapping"], mh["key"])
                 value_id = aleo_explorer_rust.get_value_id(str(key_id), mh["value"])
                 if value_id != str(fo.value_id):
                     mapping_operations = None
@@ -646,6 +648,7 @@ async def transition_route(request: Request):
                     "value": f"{future.program_id}/{future.function_name}(...)",
                 })
 
+    sync_info = await out_of_sync_check(db)
     ctx = {
         "ts_id": ts_id,
         "ts_id_trunc": str(ts_id)[:12] + "..." + str(ts_id)[-6:],
@@ -659,6 +662,7 @@ async def transition_route(request: Request):
         "inputs": inputs,
         "outputs": outputs,
         "finalizes": finalizes,
+        "sync_info": sync_info,
     }
     return JSONResponse(ctx)
 
@@ -689,7 +693,7 @@ async def transitions_route(request: Request):
     return JSONResponse(ctx)
 
 async def search_route(request: Request):
-    db: Database = request.app.state.db    
+    db: Database = request.app.state.db
     query = request.query_params.get("q")
     if query is None:
         raise HTTPException(status_code=400, detail="Missing query")
