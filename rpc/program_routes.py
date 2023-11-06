@@ -145,7 +145,7 @@ async def program_route(request: Request):
         })
     ctx: dict[str, Any] = {
         "program_id": str(program.id),
-        "times_called": await db.get_program_called_times(program_id),
+        "times_called": int(await db.get_program_called_times(program_id)),
         "imports": list(map(lambda i: str(i.program_id), program.imports)),
         "mappings": mappings,
         "structs": list(map(str, program.structs.keys())),
