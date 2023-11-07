@@ -188,6 +188,16 @@ CREATE TABLE explorer.address_transition (
     transition_id integer NOT NULL
 );
 
+--
+-- Name: address; Type: TABLE; Schema: explorer; Owner: -
+--
+
+CREATE TABLE explorer.address (
+    address text NOT NULL,
+    functions text[],
+    execution_ts_num integer DEFAULT 0 NOT NULL,
+    fee_ts_num integer DEFAULT 0 NOT NULL
+);
 
 --
 -- Name: authority; Type: TABLE; Schema: explorer; Owner: -
@@ -2194,6 +2204,13 @@ ALTER TABLE ONLY explorer.leaderboard
 
 ALTER TABLE ONLY explorer.coinbase
     ADD CONSTRAINT coinbase_pk PRIMARY KEY (height);
+
+--
+-- Name: address address_pk; Type: CONSTRAINT; Schema: explorer; Owner: -
+--
+
+ALTER TABLE ONLY explorer.address
+    ADD CONSTRAINT address_pk PRIMARY KEY (address);
 
 --
 -- Name: address_15min_hashrate address_15min_hashrate_pk; Type: CONSTRAINT; Schema: explorer; Owner: -
