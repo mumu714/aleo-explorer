@@ -75,6 +75,7 @@ routes = [
     Route("/submit_source", submit_source_route, methods=["POST"]),
     # Proving
     Route("/calc", calc_route),
+    Route("/validators", validators_route),
     Route("/leaderboard", leaderboard_route),
     Route("/address", address_route),
     Route("/address_solutions", address_solution_route),
