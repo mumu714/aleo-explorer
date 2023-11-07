@@ -24,6 +24,25 @@ async def calc_route(request: Request):
     }
     return JSONResponse(ctx)
 
+async def validators_route(request: Request):
+    db: Database = request.app.state.db
+    committee, validators = await db.get_validators()
+    data: list[dict[str, Any]] = []
+    for validator in validators:
+        data.append({
+            "address": validator["address"],
+            "stake": int(validator["stake"]),
+            "is_open": validator["is_open"]
+        })
+    sync_info = await out_of_sync_check(db)
+    ctx = {
+        "validators": data,
+        "total_stake": int(committee["total_stake"]),
+        "starting_round": int(committee["starting_round"]),
+        "sync_info": sync_info,
+    }
+    return JSONResponse(ctx)
+
 
 async def leaderboard_route(request: Request):
     db: Database = request.app.state.db
@@ -118,8 +137,7 @@ async def address_route(request: Request):
         total_incentive = 0
         speed = 0
         interval = 0
-    transactions_count = await db.get_transition_count_by_address(address)
-    function_names = await db.get_transition_function_name_by_address(address)
+    address_info = await db.get_address_info(address)
     program_count = await db.get_program_count_by_address(address)
     interval_text = {
         0: "never",
@@ -257,8 +275,9 @@ async def address_route(request: Request):
         "total_incentive": int(total_incentive),
         "total_solutions": solution_count,
         "total_programs": program_count,
-        "total_transactions": transactions_count,
-        "function_names": function_names,
+        "total_execution_transactions": address_info["execution_transactions"],
+        "total_fee_transactions": address_info["fee_transactions"],
+        "function_names": address_info["functions"],
         "speed": float(speed),
         "timespan": interval_text[interval],
         "public_balance": public_balance,
@@ -344,8 +363,8 @@ async def address_transaction_route(request: Request):
             offset = int(offset)
     except:
         raise HTTPException(status_code=400, detail="Invalid page")
-    transactions_count = await db.get_transition_count_by_address(address)
-    if offset < 0 or offset > transactions_count:
+    address_info = await db.get_address_info(address)
+    if offset < 0 or offset > address_info["execution_transactions"]:
         raise HTTPException(status_code=400, detail="Invalid page")
     transitions = await db.get_transition_by_address(address, offset, offset + limit)
     data: list[dict[str, Any]] = []
@@ -392,7 +411,8 @@ async def address_transaction_route(request: Request):
     ctx = {
         "address": address,
         "address_trunc": address[:14] + "..." + address[-6:],
-        "transaction_count": transactions_count,
+        "total_execution_transactions": address_info["execution_transactions"],
+        "total_fee_transactions": address_info["fee_transactions"],
         "transactions": data,
         "sync_info": sync_info,
     }
