@@ -14,7 +14,7 @@ from aleo_types import u32, Transition, ExecuteTransaction, PrivateTransitionInp
     FeeTransaction, RejectedDeploy, RejectedExecution, Identifier, Entry, ConfirmedTransaction, \
     Transaction, FutureTransitionOutput, Future, PlaintextArgument, FutureArgument, StructPlaintext, Finalize, \
     PlaintextFinalizeType, StructPlaintextType, UpdateKeyValue, Value, Plaintext, RemoveKeyValue, FinalizeOperation, \
-    Program
+    Program, BatchCertificate1
 from db import Database
 from util.global_cache import get_program
 from .utils import function_signature, out_of_sync_check, function_definition
@@ -145,17 +145,23 @@ async def block_route(request: Request):
                 if round_ != certificate.batch_header.round:
                     raise ValueError("invalid subdag round")
                 else:
+                    certificate_id = ""
+                    if isinstance(certificate, BatchCertificate1):
+                        certificate_id = str(certificate.certificate_id)
+                        signatures = [str(i[0]) for i in certificate.signatures] 
+                    else:
+                        signatures = [str(i) for i in certificate.signatures]   # type: ignore
                     subs.append({
                         "round": round_,
                         "index": index,
-                        "certificate_id": str(certificate.certificate_id),
+                        "certificate_id": certificate_id,
                         "batch_id": str(certificate.batch_header.batch_id),
                         "author": str(certificate.batch_header.author),
                         "timestamp": certificate.batch_header.timestamp,
                         "previous_certificate_ids": [str(i) for i in certificate.batch_header.previous_certificate_ids],
                         "transmission_ids": [str(i.id) for i in certificate.batch_header.transmission_ids], # type: ignore
                         "batch_header_signature": str(certificate.batch_header.signature),
-                        "signatures": [str(i[0]) for i in certificate.signatures] 
+                        "signatures": signatures 
                     })
 
     sync_info = await out_of_sync_check(db)
