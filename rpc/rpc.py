@@ -110,7 +110,7 @@ app = Starlette(
         Middleware(AccessLoggerMiddleware, format=log_format),
         Middleware(CORSMiddleware, allow_origins=['*'], allow_headers=["*"]),
         Middleware(ServerTimingMiddleware),
-        Middleware(APIQuotaMiddleware)
+        # Middleware(APIQuotaMiddleware),
     ]
 )
 

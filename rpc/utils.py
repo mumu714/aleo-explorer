@@ -3,9 +3,7 @@ import os
 import time
 
 import aiohttp
-from starlette.exceptions import HTTPException
 
-from aleo_types import Transition, PublicTransitionInput, LiteralPlaintext
 from db import Database
 
 
@@ -97,6 +95,3 @@ async def function_definition(db: Database, program_id: str, function_name: str)
     if data is None:
         return f"Unknown function {program_id}/{function_name}"
     return data
-
-
-
