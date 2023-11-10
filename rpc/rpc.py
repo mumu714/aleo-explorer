@@ -15,6 +15,7 @@ from middleware.asgi_logger import AccessLoggerMiddleware
 from starlette.middleware.cors import CORSMiddleware
 from middleware.api_quota import APIQuotaMiddleware
 from middleware.server_timing import ServerTimingMiddleware
+from middleware.minify import MinifyMiddleware
 # from node.light_node import LightNodeState
 from .chain_routes import *
 from .program_routes import *
@@ -110,6 +111,7 @@ app = Starlette(
         Middleware(AccessLoggerMiddleware, format=log_format),
         Middleware(CORSMiddleware, allow_origins=['*'], allow_headers=["*"]),
         Middleware(ServerTimingMiddleware),
+        Middleware(MinifyMiddleware),
         # Middleware(APIQuotaMiddleware),
     ]
 )
