@@ -2,19 +2,30 @@ import asyncio
 import logging
 import multiprocessing
 import os
+import time
+from typing import Any
 
 import uvicorn
 from starlette.applications import Starlette
+from starlette.exceptions import HTTPException
 from starlette.middleware import Middleware
+from starlette.middleware.cors import CORSMiddleware
+from starlette.requests import Request
 from starlette.responses import FileResponse
-from starlette.routing import Route, Mount
 from starlette.staticfiles import StaticFiles
 from starlette.responses import JSONResponse
+from starlette.routing import Route
 
+from api.execute_routes import preview_finalize_route
+from api.mapping_routes import mapping_route, mapping_list_route, mapping_value_list_route
+from db import Database
+from middleware.api_filter import APIFilterMiddleware
+from middleware.api_quota import APIQuotaMiddleware
 from middleware.asgi_logger import AccessLoggerMiddleware
 from starlette.middleware.cors import CORSMiddleware
 from middleware.api_quota import APIQuotaMiddleware
 from middleware.server_timing import ServerTimingMiddleware
+from util.cache import Cache
 from middleware.minify import MinifyMiddleware
 # from node.light_node import LightNodeState
 from .chain_routes import *
@@ -36,6 +47,15 @@ class UvicornServer(multiprocessing.Process):
 
     def run(self, *args: Any, **kwargs: Any):
         self.server.run()
+
+async def commitment_route(request: Request):
+    db: Database = request.app.state.db
+    if time.time() >= 1675209600:
+        return JSONResponse(None)
+    commitment = request.query_params.get("commitment")
+    if not commitment:
+        return HTTPException(400, "Missing commitment")
+    return JSONResponse(await db.get_puzzle_commitment(commitment))
 
 async def index_route(request: Request):
     db: Database = request.app.state.db
@@ -85,6 +105,12 @@ routes = [
     Route("/biggest_miners", biggest_miners_route),
     # Other
     Route("/robots.txt", robots_route),
+    # mapping
+    Route("/commitment", commitment_route),
+    Route("/v{version:int}/mapping/get_value/{program_id}/{mapping}/{key}", mapping_route),
+    Route("/v{version:int}/mapping/list_program_mappings/{program_id}", mapping_list_route),
+    Route("/v{version:int}/mapping/list_program_mapping_values/{program_id}/{mapping}", mapping_value_list_route),
+    Route("/v{version:int}/preview_finalize_execution", preview_finalize_route, methods=["POST"]),
 ]
 
 async def startup():
@@ -99,6 +125,7 @@ async def startup():
     await db.connect()
     # noinspection PyUnresolvedReferences
     app.state.db = db
+    app.state.program_cache = Cache()
 
 
 log_format = '\033[92mACCESS\033[0m: \033[94m%(client_addr)s\033[0m - - %(t)s \033[96m"%(request_line)s"\033[0m \033[93m%(s)s\033[0m %(B)s "%(f)s" "%(a)s" %(L)s \033[95m%(htmx)s\033[0m'
@@ -113,6 +140,7 @@ app = Starlette(
         Middleware(ServerTimingMiddleware),
         Middleware(MinifyMiddleware),
         # Middleware(APIQuotaMiddleware),
+        Middleware(APIFilterMiddleware),
     ]
 )
 
