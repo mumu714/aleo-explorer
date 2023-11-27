@@ -493,6 +493,137 @@ async def address_function_transaction_route(request: Request):
     }
     return JSONResponse(ctx)
 
+async def address_trending_route(request: Request):
+    db: Database = request.app.state.db
+    address = request.query_params.get("a")
+    type = request.query_params.get("type")
+    if address is None:
+        raise HTTPException(status_code=400, detail="Missing address")
+    if type is None:
+        raise HTTPException(status_code=400, detail="Missing trending type")
+    current_data = int(time.time())
+    if type == "1d":
+        today_zero_time = current_data - int(time.time() - time.timezone) % 86400
+        previous_timestamp = today_zero_time - 86400 * 30
+        trending_time = today_zero_time
+    elif type == "1h":
+        now_datetime_hour = current_data - (current_data % 3600)
+        previous_timestamp = now_datetime_hour - 86400
+        trending_time = now_datetime_hour
+    else:
+        raise HTTPException(status_code=400, detail="Error trending type")
+    solutions = await db.get_solutions_by_address_and_time(address, previous_timestamp)
+    counts_data: list[dict[str, Any]] = []
+    power_data: list[dict[str, Any]] = []
+    speed_data: list[dict[str, Any]] = []
+    if len(solutions) > 0:
+        cur_solution = [solution for solution in solutions if solution["timestamp"] >= trending_time ]
+        if type == "1d":
+            for i in range(1, 30):
+                counts_data.append({
+                    "timestamp": trending_time,
+                    "count": len(cur_solution)
+                })
+                power_data.append({
+                    "timestamp": trending_time,
+                    "power": sum(solution["reward"] for solution in cur_solution)
+                })
+                speed_data.append({
+                    "timestamp": trending_time,
+                    "speed": float(sum(solution["pre_proof_target"] for solution in cur_solution)/86400)
+                })
+                cur_solution = [solution for solution in solutions if solution["timestamp"] < trending_time and solution["timestamp"] >= trending_time - 86400 * 1]
+                trending_time = trending_time - 86400 * 1
+        elif type == "1h":
+            for i in range(1, 24):
+                counts_data.append({
+                    "timestamp": trending_time,
+                    "count": len(cur_solution)
+                })
+                power_data.append({
+                    "timestamp": trending_time,
+                    "power": sum(solution["reward"] for solution in cur_solution)
+                })
+                speed_data.append({
+                    "timestamp": trending_time,
+                    "speed": float(sum(solution["pre_proof_target"] for solution in cur_solution)/3600)
+                })
+                cur_solution = [solution for solution in solutions if solution["timestamp"] < trending_time and solution["timestamp"] >= trending_time - 3600 * 1]
+                trending_time = trending_time - 3600 * 1
+    sync_info = await out_of_sync_check(db)
+    ctx = {
+        "address": address,
+        "address_trunc": address[:14] + "..." + address[-6:],
+        "counts_data": counts_data,
+        "power_data": power_data,
+        "speed_data": speed_data,
+        "sync_info": sync_info,
+    }
+    return JSONResponse(ctx)
+
+async def baseline_trending_route(request: Request):
+    db: Database = request.app.state.db
+    type = request.query_params.get("type")
+    if type is None:
+        raise HTTPException(status_code=400, detail="Missing trending type")
+    current_data = int(time.time())
+    if type == "1d":
+        today_zero_time = current_data - int(time.time() - time.timezone) % 86400
+        previous_timestamp = today_zero_time - 86400 * 30
+        trending_time = today_zero_time
+    elif type == "1h":
+        now_datetime_hour = current_data - (current_data % 3600)
+        previous_timestamp = now_datetime_hour - 86400
+        trending_time = now_datetime_hour
+    else:
+        raise HTTPException(status_code=400, detail="Error trending type")
+    solutions = await db.get_solutions_by_time(previous_timestamp)
+    counts_data: list[dict[str, Any]] = []
+    power_data: list[dict[str, Any]] = []
+    speed_data: list[dict[str, Any]] = []
+    if len(solutions) > 0:
+        cur_solution = [solution for solution in solutions if solution["timestamp"] >= trending_time ]
+        if type == "1d":
+            for i in range(1, 30):
+                counts_data.append({
+                    "timestamp": trending_time,
+                    "count": len(cur_solution)
+                })
+                power_data.append({
+                    "timestamp": trending_time,
+                    "power": sum(solution["reward"] for solution in cur_solution)
+                })
+                speed_data.append({
+                    "timestamp": trending_time,
+                    "speed": float(sum(solution["pre_proof_target"] for solution in cur_solution)/86400)
+                })
+                cur_solution = [solution for solution in solutions if solution["timestamp"] < trending_time and solution["timestamp"] >= trending_time - 86400 * 1]
+                trending_time = trending_time - 86400 * 1
+        elif type == "1h":
+            for i in range(1, 24):
+                counts_data.append({
+                    "timestamp": trending_time,
+                    "count": len(cur_solution)
+                })
+                power_data.append({
+                    "timestamp": trending_time,
+                    "power": sum(solution["reward"] for solution in cur_solution)
+                })
+                speed_data.append({
+                    "timestamp": trending_time,
+                    "speed": float(sum(solution["pre_proof_target"] for solution in cur_solution)/3600)
+                })
+                cur_solution = [solution for solution in solutions if solution["timestamp"] < trending_time and solution["timestamp"] >= trending_time - 3600 * 1]
+                trending_time = trending_time - 3600 * 1
+    sync_info = await out_of_sync_check(db)
+    ctx = {
+        "counts_data": counts_data,
+        "power_data": power_data,
+        "speed_data": speed_data,
+        "sync_info": sync_info,
+    }
+    return JSONResponse(ctx)
+
 
 async def biggest_miners_route(request: Request):
     db: Database = request.app.state.db
