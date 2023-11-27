@@ -99,9 +99,11 @@ routes = [
     Route("/validators", validators_route),
     Route("/leaderboard", leaderboard_route),
     Route("/address", address_route),
+    Route("/address_trending", address_trending_route),
     Route("/address_solutions", address_solution_route),
     Route("/address_transactions", address_transaction_route),
     Route("/address_function_transactions", address_function_transaction_route),
+    Route("/baseline_trending", baseline_trending_route),
     Route("/biggest_miners", biggest_miners_route),
     # Other
     Route("/robots.txt", robots_route),
