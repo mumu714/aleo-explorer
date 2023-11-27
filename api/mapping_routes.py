@@ -23,18 +23,18 @@ async def mapping_route(request: Request, program_cache: dict[str, Program]):
     except KeyError:
         program = await db.get_program(program_id)
         if not program:
-            return JSONResponse({"error": "Program not found"}, status_code=404)
+            return JSONResponse({"error": "Program not found"}, status_code=200)
         program = Program.load(BytesIO(program))
         program_cache[program_id] = program
     if mapping not in program.mappings:
-        return JSONResponse({"error": "Mapping not found"}, status_code=404)
+        return JSONResponse({"error": "Mapping not found"}, status_code=200)
     map_key_type = program.mappings[mapping].key.plaintext_type
     if isinstance(map_key_type, LiteralPlaintextType):
         primitive_type = map_key_type.literal_type.primitive_type
         try:
             key = primitive_type.loads(key)
         except:
-            return JSONResponse({"error": "Invalid key"}, status_code=400)
+            return JSONResponse({"error": "Invalid key"}, status_code=200)
         key = LiteralPlaintext(literal=Literal(type_=Literal.reverse_primitive_type_map[primitive_type], primitive=key))
     elif isinstance(map_key_type, StructPlaintextType):
         structs = program.structs
@@ -42,10 +42,10 @@ async def mapping_route(request: Request, program_cache: dict[str, Program]):
         try:
             value = StructPlaintext.loads(key, struct_type, structs)
         except Exception as e:
-            return JSONResponse({"error": f"Invalid struct key: {e} (experimental feature, if you believe this is an error please submit a feedback)"}, status_code=400)
+            return JSONResponse({"error": f"Invalid struct key: {e} (experimental feature, if you believe this is an error please submit a feedback)"}, status_code=200)
         key = value
     else:
-        return JSONResponse({"error": "Unknown key type"}, status_code=500)
+        return JSONResponse({"error": "Unknown key type"}, status_code=200)
     key_id = cached_get_key_id(program_id, mapping, key.dump())
     value = await db.get_mapping_value(program_id, mapping, key_id)
     if value is None:
