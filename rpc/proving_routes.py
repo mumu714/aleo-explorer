@@ -12,6 +12,7 @@ from aleo_types import PlaintextValue, LiteralPlaintext, Literal, \
 from db import Database
 from .utils import out_of_sync_check
 from .format import *
+from aleo_types import *
 
 
 async def calc_route(request: Request):
@@ -71,6 +72,73 @@ async def leaderboard_route(request: Request):
             "total_incentive": str(int(line["total_incentive"])),
         })
     now = int(time.time())
+    total_credit = await db.get_leaderboard_total()
+    target_credit = 37_500_000_000_000
+    ratio = total_credit / target_credit * 100
+    sync_info = await out_of_sync_check(db)
+    ctx = {
+        "leaderboard": data,
+        "address_count": address_count,
+        "total_credit": total_credit,
+        "target_credit": target_credit,
+        "ratio": ratio,
+        "now": now,
+        "sync_info": sync_info,
+    }
+    return JSONResponse(ctx)
+
+async def leaderboards_route(request: Request):
+    db: Database = request.app.state.db
+    try:
+        limit = request.query_params.get("limit")
+        offset = request.query_params.get("offset")
+        if limit is None:
+            limit = 50
+        else:
+            limit = int(limit)
+        if offset is None:
+            offset = 0
+        else:
+            offset = int(offset)
+    except:
+        raise HTTPException(status_code=400, detail="Invalid page")
+    type = request.path_params["type"]
+    if type not in ["15min", "1h", "1d", "7d", "all"]:
+        raise HTTPException(status_code=400, detail="Error trending type")
+    now = int(time.time())
+    data: list[dict[str, Any]] = []
+    if type == "all":
+        address_count = await db.get_leaderboard_size()
+        if offset < 0 or offset > address_count:
+            raise HTTPException(status_code=400, detail="Invalid page")
+        leaderboard_data = await db.get_leaderboard(offset, offset + limit)
+        for line in leaderboard_data:
+            data.append({
+                "address": line["address"],
+                "total_rewards": str(int(line["total_reward"])),
+            })
+    else:
+        if type == "1h":
+            interval = 3600
+        elif type == "1d":
+            interval = 86400
+        elif type == "7d":
+            interval = 86400 * 7
+        else:
+            interval = 900
+        solutions = await db.get_solutions_by_time(now - interval)
+        address_count = 0
+        if len(solutions) > 0:
+            address_list = list(set(map(lambda x: x['address'], solutions)))
+            address_count = len(address_list)
+            for address in address_list:
+                cur_solution = [solution for solution in solutions if solution["address"] == address]
+                data.append({
+                    "address": address,
+                    "total_rewards": sum(solution["reward"] for solution in cur_solution),
+                    "speed": float(sum(solution["pre_proof_target"] for solution in cur_solution)/interval),
+                })
+
     total_credit = await db.get_leaderboard_total()
     target_credit = 37_500_000_000_000
     ratio = total_credit / target_credit * 100
