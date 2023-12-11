@@ -97,8 +97,10 @@ routes = [
     # Proving
     Route("/calc", calc_route),
     Route("/validators", validators_route),
-    Route("/leaderboard/", leaderboard_route),
-    Route("/leaderboard/{type}", leaderboards_route),
+    Route("/leaderboard", leaderboard_route),
+    Route("/credits", credits_route),
+    Route("/power/leaderboard/{type}", power_route),
+    Route("/reward/leaderboard/{type}", reward_route),
     Route("/address", address_route),
     Route("/address_trending", address_trending_route),
     Route("/address_solutions", address_solution_route),

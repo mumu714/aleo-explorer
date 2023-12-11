@@ -10,7 +10,7 @@ from starlette.responses import JSONResponse
 from aleo_types import PlaintextValue, LiteralPlaintext, Literal, \
     Address, Value, StructPlaintext, FutureTransitionOutput, PlaintextArgument
 from db import Database
-from .utils import out_of_sync_check
+from .utils import out_of_sync_check, get_address_type
 from .format import *
 from aleo_types import *
 
@@ -30,8 +30,12 @@ async def validators_route(request: Request):
     committee, validators = await db.get_validators()
     data: list[dict[str, Any]] = []
     for validator in validators:
+        total_rewards, _ = await db.get_leaderboard_rewards_by_address(validator["address"])
+        address_type = await get_address_type(db, validator["address"])
         data.append({
             "address": validator["address"],
+            "address_type": address_type,
+            "total_reward": int(total_rewards),
             "stake": int(validator["stake"]),
             "is_open": validator["is_open"]
         })
@@ -40,6 +44,42 @@ async def validators_route(request: Request):
         "validators": data,
         "total_stake": int(committee["total_stake"]),
         "starting_round": int(committee["starting_round"]),
+        "sync_info": sync_info,
+    }
+    return JSONResponse(ctx)
+
+async def credits_route(request: Request):
+    db: Database = request.app.state.db
+    try:
+        limit = request.query_params.get("limit")
+        offset = request.query_params.get("offset")
+        if limit is None:
+            limit = 50
+        else:
+            limit = int(limit)
+        if offset is None:
+            offset = 0
+        else:
+            offset = int(offset)
+    except:
+        raise HTTPException(status_code=400, detail="Invalid page")
+    address_count = await db.get_credits_leaderboard_size()
+    if offset < 0 or offset > address_count:
+        raise HTTPException(status_code=400, detail="Invalid page")
+    credits_leaderboard = await db.get_credits_leaderboard(offset, offset + limit)
+    data: list[dict[str, Any]] = []
+    for line in credits_leaderboard:
+        total_rewards, _ = await db.get_leaderboard_rewards_by_address(line["address"])
+        address_type = await get_address_type(db, line["address"])
+        data.append({
+            "address": line["address"],
+            "address_type": address_type,
+            "public_credits": int(line["public_credits"]),
+            "total_reward": int(total_rewards)
+        })
+    sync_info = await out_of_sync_check(db)
+    ctx = {
+        "leaderborad": data,
         "sync_info": sync_info,
     }
     return JSONResponse(ctx)
@@ -87,7 +127,8 @@ async def leaderboard_route(request: Request):
     }
     return JSONResponse(ctx)
 
-async def leaderboards_route(request: Request):
+
+async def reward_route(request: Request):
     db: Database = request.app.state.db
     try:
         limit = request.query_params.get("limit")
@@ -103,9 +144,17 @@ async def leaderboards_route(request: Request):
     except:
         raise HTTPException(status_code=400, detail="Invalid page")
     type = request.path_params["type"]
-    if type not in ["15min", "1h", "1d", "7d", "all"]:
+    interval = {
+        "15min": 900,
+        "1h": 3600,
+        "1d": 86400,
+        "7d": 86400 * 7,
+        "all": 0
+    }
+    if type not in interval.keys():
         raise HTTPException(status_code=400, detail="Error trending type")
     now = int(time.time())
+    all_data: list[dict[str, Any]] = []
     data: list[dict[str, Any]] = []
     if type == "all":
         address_count = await db.get_leaderboard_size()
@@ -113,31 +162,99 @@ async def leaderboards_route(request: Request):
             raise HTTPException(status_code=400, detail="Invalid page")
         leaderboard_data = await db.get_leaderboard(offset, offset + limit)
         for line in leaderboard_data:
+            address_type = await get_address_type(db, line["address"])
             data.append({
                 "address": line["address"],
-                "total_rewards": str(int(line["total_reward"])),
+                "address_type": address_type,
+                "rewards": int(line["total_reward"]),
+                "total_reward": int(line["total_reward"]),
             })
     else:
-        if type == "1h":
-            interval = 3600
-        elif type == "1d":
-            interval = 86400
-        elif type == "7d":
-            interval = 86400 * 7
+        solutions = await db.get_solutions_by_time(now - interval[type])
+        address_list = list(set(map(lambda x: x['address'], solutions)))
+        address_count = len(address_list)
+        if offset < 0 or offset > address_count:
+            raise HTTPException(status_code=400, detail="Invalid page")
+        for address in address_list:
+            cur_solution = [solution for solution in solutions if solution["address"] == address]
+            total_rewards, _ = await db.get_leaderboard_rewards_by_address(address)
+            address_type = await get_address_type(db, address)
+            all_data.append({
+                "address": address,
+                "address_type": address_type,
+                "reward": sum(solution["reward"] for solution in cur_solution),
+                "count": len(cur_solution),
+                "total_reward": int(total_rewards)
+            })
+        leaderboard_data = sorted(all_data, key=lambda e: e['reward'], reverse=True)
+        if offset + limit > len(leaderboard_data):
+            data = leaderboard_data[offset:-1]
         else:
-            interval = 900
-        solutions = await db.get_solutions_by_time(now - interval)
-        address_count = 0
-        if len(solutions) > 0:
-            address_list = list(set(map(lambda x: x['address'], solutions)))
-            address_count = len(address_list)
-            for address in address_list:
-                cur_solution = [solution for solution in solutions if solution["address"] == address]
-                data.append({
-                    "address": address,
-                    "total_rewards": sum(solution["reward"] for solution in cur_solution),
-                    "speed": float(sum(solution["pre_proof_target"] for solution in cur_solution)/interval),
-                })
+            data = leaderboard_data[offset:offset + limit]
+
+    total_credit = await db.get_leaderboard_total()
+    target_credit = 37_500_000_000_000
+    ratio = total_credit / target_credit * 100
+    sync_info = await out_of_sync_check(db)
+    ctx = {
+        "leaderboard": data,
+        "address_count": address_count,
+        "total_credit": total_credit,
+        "target_credit": target_credit,
+        "ratio": ratio,
+        "now": now,
+        "sync_info": sync_info,
+    }
+    return JSONResponse(ctx)
+
+
+async def power_route(request: Request):
+    db: Database = request.app.state.db
+    try:
+        limit = request.query_params.get("limit")
+        offset = request.query_params.get("offset")
+        if limit is None:
+            limit = 50
+        else:
+            limit = int(limit)
+        if offset is None:
+            offset = 0
+        else:
+            offset = int(offset)
+    except:
+        raise HTTPException(status_code=400, detail="Invalid page")
+    type = request.path_params["type"]
+    interval = {
+        "15min": 900,
+        "1h": 3600,
+        "1d": 86400,
+        "7d": 86400 * 7
+    }
+    if type not in interval.keys():
+        raise HTTPException(status_code=400, detail="Error trending type")
+    now = int(time.time())
+    all_data: list[dict[str, Any]] = []
+    solutions = await db.get_solutions_by_time(now - interval[type])
+    address_list = list(set(map(lambda x: x['address'], solutions)))
+    address_count = len(address_list)
+    if offset < 0 or offset > address_count:
+        raise HTTPException(status_code=400, detail="Invalid page")
+    for address in address_list:
+        cur_solution = [solution for solution in solutions if solution["address"] == address]
+        total_rewards, _ = await db.get_leaderboard_rewards_by_address(address)
+        address_type = await get_address_type(db, address)
+        all_data.append({
+            "address": address,
+            "address_type": address_type,
+            "count": len(cur_solution),
+            "power": float(sum(solution["pre_proof_target"] for solution in cur_solution) / interval[type]),
+            "total_reward": int(total_rewards)
+        })
+    leaderboard_data = sorted(all_data, key=lambda e: e['speed'], reverse=True)
+    if offset + limit > len(leaderboard_data):
+        data = leaderboard_data[offset:-1]
+    else:
+        data = leaderboard_data[offset:offset + limit]
 
     total_credit = await db.get_leaderboard_total()
     target_credit = 37_500_000_000_000
@@ -195,12 +312,25 @@ async def address_route(request: Request):
         and fee is None
     ):
         raise HTTPException(status_code=404, detail="Address not found")
+    now = int(time.time())
     if len(solutions) > 0:
         solution_count = await db.get_solution_count_by_address(address)
         total_rewards, total_incentive = await db.get_leaderboard_rewards_by_address(address)
+        solutions_15min = await db.get_solutions_by_address_and_time(address, now - 900)
+        reward_15min = sum(solution["reward"] for solution in solutions_15min)
+        solutions_1h = await db.get_solutions_by_address_and_time(address, now - 3600)
+        reward_1h = sum(solution["reward"] for solution in solutions_1h)
+        solutions_1d = await db.get_solutions_by_address_and_time(address, now - 86400)
+        reward_1d = sum(solution["reward"] for solution in solutions_1d)
+        solutions_7d = await db.get_solutions_by_address_and_time(address, now - 86400 * 7)
+        reward_7d = sum(solution["reward"] for solution in solutions_7d)
         speed, interval = await db.get_address_speed(address)
     else:
         solution_count = 0
+        reward_15min = 0
+        reward_1h = 0
+        reward_1d = 0
+        reward_7d = 0
         total_rewards = 0
         total_incentive = 0
         speed = 0
@@ -324,13 +454,13 @@ async def address_route(request: Request):
             "timestamp": transition_data["timestamp"],
             "transaction_id": transition_data["transaction_id"],
             "from": from_address,
-            "to": to_address, 
-            "credit": credit, 
+            "to": to_address,
+            "credit": credit,
             "state": state,
             "program_id": str(transition.program_id),
             "function_name": str(transition.function_name),
         })
-    
+
     sync_info = await out_of_sync_check(db)
     network_1hour_speed = await db.get_network_speed(3600)
     network_1hour_reward = await db.get_network_reward(3600)
@@ -340,6 +470,10 @@ async def address_route(request: Request):
         "address_trunc": address[:14] + "..." + address[-6:],
         "address_type": address_type,
         "total_rewards": int(total_rewards),
+        "15min_rewards": int(reward_15min),
+        "1h_rewards": int(reward_1h),
+        "1d_rewards": int(reward_1d),
+        "7d_rewards": int(reward_7d),
         "total_incentive": int(total_incentive),
         "total_solutions": solution_count,
         "total_programs": program_count,
@@ -348,7 +482,7 @@ async def address_route(request: Request):
         "function_names": address_info["functions"],
         "speed": float(speed),
         "timespan": interval_text[interval],
-        "public_balance": public_balance,
+        "public_credits": public_balance,
         "bond_state": bond_state,
         "unbond_state": unbond_state,
         "committee_state": committee_state,
@@ -468,13 +602,13 @@ async def address_transaction_route(request: Request):
             "timestamp": transition_data["timestamp"],
             "transaction_id": transition_data["transaction_id"],
             "from": from_address,
-            "to": to_address, 
-            "credit": credit, 
+            "to": to_address,
+            "credit": credit,
             "state": state,
             "program_id": str(transition.program_id),
             "function_name": str(transition.function_name),
         })
-    
+
     sync_info = await out_of_sync_check(db)
     ctx = {
         "address": address,
@@ -485,6 +619,7 @@ async def address_transaction_route(request: Request):
         "sync_info": sync_info,
     }
     return JSONResponse(ctx)
+
 
 async def address_function_transaction_route(request: Request):
     db: Database = request.app.state.db
@@ -544,13 +679,13 @@ async def address_function_transaction_route(request: Request):
             "timestamp": transition_data["timestamp"],
             "transaction_id": transition_data["transaction_id"],
             "from": from_address,
-            "to": to_address, 
-            "credit": credit, 
+            "to": to_address,
+            "credit": credit,
             "state": state,
             "program_id": str(transition.program_id),
             "function_name": str(transition.function_name),
         })
-    
+
     sync_info = await out_of_sync_check(db)
     ctx = {
         "address": address,
@@ -585,7 +720,7 @@ async def address_trending_route(request: Request):
     power_data: list[dict[str, Any]] = []
     speed_data: list[dict[str, Any]] = []
     if len(solutions) > 0:
-        cur_solution = [solution for solution in solutions if solution["timestamp"] >= trending_time ]
+        cur_solution = [solution for solution in solutions if solution["timestamp"] >= trending_time]
         if type == "1d":
             for i in range(1, 30):
                 counts_data.append({
@@ -598,9 +733,10 @@ async def address_trending_route(request: Request):
                 })
                 speed_data.append({
                     "timestamp": trending_time,
-                    "speed": float(sum(solution["pre_proof_target"] for solution in cur_solution)/86400)
+                    "speed": float(sum(solution["pre_proof_target"] for solution in cur_solution) / 86400)
                 })
-                cur_solution = [solution for solution in solutions if solution["timestamp"] < trending_time and solution["timestamp"] >= trending_time - 86400 * 1]
+                cur_solution = [solution for solution in solutions if
+                                trending_time > solution["timestamp"] >= trending_time - 86400 * 1]
                 trending_time = trending_time - 86400 * 1
         elif type == "1h":
             for i in range(1, 24):
@@ -614,9 +750,10 @@ async def address_trending_route(request: Request):
                 })
                 speed_data.append({
                     "timestamp": trending_time,
-                    "speed": float(sum(solution["pre_proof_target"] for solution in cur_solution)/3600)
+                    "speed": float(sum(solution["pre_proof_target"] for solution in cur_solution) / 3600)
                 })
-                cur_solution = [solution for solution in solutions if solution["timestamp"] < trending_time and solution["timestamp"] >= trending_time - 3600 * 1]
+                cur_solution = [solution for solution in solutions if
+                                trending_time > solution["timestamp"] >= trending_time - 3600 * 1]
                 trending_time = trending_time - 3600 * 1
     sync_info = await out_of_sync_check(db)
     ctx = {
@@ -628,6 +765,7 @@ async def address_trending_route(request: Request):
         "sync_info": sync_info,
     }
     return JSONResponse(ctx)
+
 
 async def baseline_trending_route(request: Request):
     db: Database = request.app.state.db
@@ -650,7 +788,7 @@ async def baseline_trending_route(request: Request):
     power_data: list[dict[str, Any]] = []
     speed_data: list[dict[str, Any]] = []
     if len(solutions) > 0:
-        cur_solution = [solution for solution in solutions if solution["timestamp"] >= trending_time ]
+        cur_solution = [solution for solution in solutions if solution["timestamp"] >= trending_time]
         if type == "1d":
             for i in range(1, 30):
                 counts_data.append({
@@ -663,9 +801,10 @@ async def baseline_trending_route(request: Request):
                 })
                 speed_data.append({
                     "timestamp": trending_time,
-                    "speed": float(sum(solution["pre_proof_target"] for solution in cur_solution)/86400)
+                    "speed": float(sum(solution["pre_proof_target"] for solution in cur_solution) / 86400)
                 })
-                cur_solution = [solution for solution in solutions if solution["timestamp"] < trending_time and solution["timestamp"] >= trending_time - 86400 * 1]
+                cur_solution = [solution for solution in solutions if
+                                trending_time > solution["timestamp"] >= trending_time - 86400 * 1]
                 trending_time = trending_time - 86400 * 1
         elif type == "1h":
             for i in range(1, 24):
@@ -679,9 +818,10 @@ async def baseline_trending_route(request: Request):
                 })
                 speed_data.append({
                     "timestamp": trending_time,
-                    "speed": float(sum(solution["pre_proof_target"] for solution in cur_solution)/3600)
+                    "speed": float(sum(solution["pre_proof_target"] for solution in cur_solution) / 3600)
                 })
-                cur_solution = [solution for solution in solutions if solution["timestamp"] < trending_time and solution["timestamp"] >= trending_time - 3600 * 1]
+                cur_solution = [solution for solution in solutions if
+                                trending_time > solution["timestamp"] >= trending_time - 3600 * 1]
                 trending_time = trending_time - 3600 * 1
     sync_info = await out_of_sync_check(db)
     ctx = {
