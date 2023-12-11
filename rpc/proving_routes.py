@@ -27,7 +27,23 @@ async def calc_route(request: Request):
 
 async def validators_route(request: Request):
     db: Database = request.app.state.db
-    committee, validators = await db.get_validators()
+    try:
+        limit = request.query_params.get("limit")
+        offset = request.query_params.get("offset")
+        if limit is None:
+            limit = 50
+        else:
+            limit = int(limit)
+        if offset is None:
+            offset = 0
+        else:
+            offset = int(offset)
+    except:
+        raise HTTPException(status_code=400, detail="Invalid page")
+    address_count = await db.get_validators_size()
+    if offset < 0 or offset > address_count:
+        raise HTTPException(status_code=400, detail="Invalid page")
+    committee, validators = await db.get_validators(offset, offset + limit)
     data: list[dict[str, Any]] = []
     for validator in validators:
         total_rewards, _ = await db.get_leaderboard_rewards_by_address(validator["address"])
@@ -42,6 +58,7 @@ async def validators_route(request: Request):
     sync_info = await out_of_sync_check(db)
     ctx = {
         "validators": data,
+        "address_count": address_count,
         "total_stake": int(committee["total_stake"]),
         "starting_round": int(committee["starting_round"]),
         "sync_info": sync_info,
@@ -79,7 +96,7 @@ async def credits_route(request: Request):
         })
     sync_info = await out_of_sync_check(db)
     ctx = {
-        "leaderborad": data,
+        "leaderboard": data,
         "address_count": address_count,
         "sync_info": sync_info,
     }
