@@ -334,6 +334,7 @@ CREATE TABLE explorer.address_transition (
 
 CREATE TABLE explorer.address (
     address text NOT NULL,
+    public_credits integer DEFAULT 0 NOT NULL,
     functions text[],
     execution_ts_num integer DEFAULT 0 NOT NULL,
     fee_ts_num integer DEFAULT 0 NOT NULL
