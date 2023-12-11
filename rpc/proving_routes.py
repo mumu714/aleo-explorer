@@ -80,6 +80,7 @@ async def credits_route(request: Request):
     sync_info = await out_of_sync_check(db)
     ctx = {
         "leaderborad": data,
+        "address_count": address_count,
         "sync_info": sync_info,
     }
     return JSONResponse(ctx)
@@ -188,7 +189,7 @@ async def reward_route(request: Request):
             })
         leaderboard_data = sorted(all_data, key=lambda e: e['reward'], reverse=True)
         if offset + limit > len(leaderboard_data):
-            data = leaderboard_data[offset:-1]
+            data = leaderboard_data[offset:]
         else:
             data = leaderboard_data[offset:offset + limit]
 
@@ -250,9 +251,9 @@ async def power_route(request: Request):
             "power": float(sum(solution["pre_proof_target"] for solution in cur_solution) / interval[type]),
             "total_reward": int(total_rewards)
         })
-    leaderboard_data = sorted(all_data, key=lambda e: e['speed'], reverse=True)
+    leaderboard_data = sorted(all_data, key=lambda e: e['power'], reverse=True)
     if offset + limit > len(leaderboard_data):
-        data = leaderboard_data[offset:-1]
+        data = leaderboard_data[offset:]
     else:
         data = leaderboard_data[offset:offset + limit]
 
