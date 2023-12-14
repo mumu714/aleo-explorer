@@ -434,50 +434,15 @@ async def address_route(request: Request):
     if fee is None:
         fee = 0
     address_type = ""
+    total_delegators_reward = 0
+    total_stake = 0
     if committee_state:
         address_type = "Validator"
+        all_delegators = await db.get_validator_bonds(address)
+        total_delegators_reward = sum(delegator["stake_reward"] for delegator in all_delegators)
+        total_stake = await db.get_total_stake()
     elif solution_count > 0:
         address_type = "Prover"
-
-    recent_transitions: list[dict[str, Any]] = []
-    for transition_data in transitions:
-        transition = await db.get_transition(transition_data["transition_id"])
-        if transition is None:
-            raise HTTPException(status_code=550, detail="Transition not found")
-        from_address = ""
-        to_address = ""
-        credit = 0
-        for output in transition.outputs:
-            if isinstance(output, FutureTransitionOutput):
-                future = output.future.value
-                if future is not None:
-                    for i, argument in enumerate(future.arguments):
-                        if isinstance(argument, PlaintextArgument):
-                            plaintext = argument.plaintext
-                            if isinstance(plaintext, LiteralPlaintext) and plaintext.literal.type == Literal.Type.Address:
-                                if i == 0:
-                                    from_address = str(plaintext.literal.primitive)
-                                if i == 1:
-                                    to_address = str(plaintext.literal.primitive)
-                            if isinstance(plaintext, LiteralPlaintext) and plaintext.literal.type == Literal.Type.U64:
-                                credit = format_aleo_credit(plaintext.literal.primitive) # type: ignore
-        state = ""
-        if transition_data["type"].startswith("Accepted"):
-            state = "Accepted"
-        elif transition_data["type"].startswith("Rejected"):
-            state = "Rejected"
-        recent_transitions.append({
-            "transition_id": transition_data["transition_id"],
-            "height": transition_data["height"],
-            "timestamp": transition_data["timestamp"],
-            "transaction_id": transition_data["transaction_id"],
-            "from": from_address,
-            "to": to_address,
-            "credit": credit,
-            "state": state,
-            "program_id": str(transition.program_id),
-            "function_name": str(transition.function_name),
-        })
 
     sync_info = await out_of_sync_check(db)
     network_1hour_speed = await db.get_network_speed(3600)
@@ -505,6 +470,8 @@ async def address_route(request: Request):
         "unbond_state": unbond_state,
         "committee_state": committee_state,
         "stake_reward": stake_reward,
+        "delegators_reward": total_delegators_reward,
+        "total_stake": total_stake,
         "transfer_in": transfer_in,
         "transfer_out": transfer_out,
         "fee": fee,
@@ -516,7 +483,6 @@ async def address_route(request: Request):
         },
         "solutions": recent_solutions,
         "programs": recent_programs,
-        "transaction": recent_transitions,
         "sync_info": sync_info,
     }
 
@@ -846,6 +812,44 @@ async def baseline_trending_route(request: Request):
         "counts_data": counts_data,
         "power_data": power_data,
         "speed_data": speed_data,
+        "sync_info": sync_info,
+    }
+    return JSONResponse(ctx)
+
+
+async def validator_bonds_route(request: Request):
+    db: Database = request.app.state.db
+    address = request.query_params.get("a")
+    if address is None:
+        raise HTTPException(status_code=400, detail="Missing address")
+    try:
+        limit = request.query_params.get("limit")
+        offset = request.query_params.get("offset")
+        if limit is None:
+            limit = 50
+        else:
+            limit = int(limit)
+        if offset is None:
+            offset = 0
+        else:
+            offset = int(offset)
+    except:
+        raise HTTPException(status_code=400, detail="Invalid page")
+    all_delegators = await db.get_validator_bonds(address)
+    delegator_count = len(all_delegators)
+    if offset < 0 or offset > delegator_count: 
+        raise HTTPException(status_code=400, detail="Invalid page")
+    all_delegators = sorted(all_delegators, key=lambda e: e['stake'], reverse=True)
+    total_delegators_reward = sum(delegator["stake_reward"] for delegator in all_delegators)
+    if offset + limit > len(all_delegators):
+        delegators = all_delegators[offset:]
+    else:
+        delegators = all_delegators[offset:offset + limit]
+    sync_info = await out_of_sync_check(db)
+    ctx = {
+        "delegators": delegators,
+        "delegator_count": delegator_count,
+        "total_delegators_reward": total_delegators_reward,
         "sync_info": sync_info,
     }
     return JSONResponse(ctx)
