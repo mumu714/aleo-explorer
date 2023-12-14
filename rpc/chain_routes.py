@@ -778,7 +778,7 @@ async def search_route(request: Request):
             if len(query) == 63 and query.isalnum():
                 return RedirectResponse(f"/address?a={query}{remaining_query}", status_code=302)
             else:
-                raise HTTPException(status_code=404, detail=f"Address format error. {query.isalnum()}")
+                raise HTTPException(status_code=404, detail=f"Address format error.")
         if len(addresses) == 1:
             return RedirectResponse(f"/address?a={addresses[0]}{remaining_query}", status_code=302)
         too_many = False
