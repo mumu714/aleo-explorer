@@ -297,12 +297,15 @@ async def address_route(request: Request):
     solutions = await db.get_recent_solutions_by_address(address)
     programs = await db.get_recent_programs_by_address(address)
     transitions = await db.get_address_recent_transitions(address)
-    address_key = LiteralPlaintext(
-        literal=Literal(
-            type_=Literal.Type.Address,
-            primitive=Address.loads(address),
+    try:
+        address_key = LiteralPlaintext(
+            literal=Literal(
+                type_=Literal.Type.Address,
+                primitive=Address.loads(address),
+            )
         )
-    )
+    except:
+        raise HTTPException(status_code=404, detail="Address error")
     address_key_bytes = address_key.dump()
     account_key_id = aleo_explorer_rust.get_key_id("credits.aleo", "account", address_key_bytes)
     bonded_key_id = aleo_explorer_rust.get_key_id("credits.aleo", "bonded", address_key_bytes)
@@ -329,10 +332,7 @@ async def address_route(request: Request):
         and transfer_out is None
         and fee is None
     ):
-        if address.startswith("aleo1") and len(address) == 63 and address.isalnum():
-            return JSONResponse({})
-        else:
-            raise HTTPException(status_code=404, detail="Address format error")
+        return JSONResponse({})
     now = int(time.time())
     if len(solutions) > 0:
         solution_count = await db.get_solution_count_by_address(address)
