@@ -329,7 +329,10 @@ async def address_route(request: Request):
         and transfer_out is None
         and fee is None
     ):
-        raise HTTPException(status_code=404, detail="Address not found")
+        if address.startswith("aleo1") and len(address) == 63 and address.isalnum():
+            return JSONResponse({})
+        else:
+            raise HTTPException(status_code=404, detail="Address format error")
     now = int(time.time())
     if len(solutions) > 0:
         solution_count = await db.get_solution_count_by_address(address)
