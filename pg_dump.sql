@@ -166,7 +166,7 @@ CREATE TABLE explorer.hashrate (
 
 CREATE TABLE explorer.coinbase (
     height bigint NOT NULL,
-    reward numeric(40,10) NOT NULL
+    reward numeric(40,0) NOT NULL
 );
 
 --
@@ -188,17 +188,91 @@ CREATE TABLE explorer.address_transition (
     transition_id integer NOT NULL
 );
 
+
 --
 -- Name: address; Type: TABLE; Schema: explorer; Owner: -
 --
 
 CREATE TABLE explorer.address (
     address text NOT NULL,
-    public_credits integer DEFAULT 0 NOT NULL,
+    public_credits numeric(40,0) DEFAULT 0 NOT NULL,
     functions text[],
     execution_ts_num integer DEFAULT 0 NOT NULL,
     fee_ts_num integer DEFAULT 0 NOT NULL
 );
+
+
+--
+-- Name: address_transition_detail; Type: TABLE; Schema: explorer; Owner: -
+--
+
+CREATE TABLE explorer.address_transition_detail (
+    id integer NOT NULL,
+    address text NOT NULL,
+    transition_id text NOT NULL,
+    transaction_id text NOT NULL,
+    height bigint NOT NULL,
+    "timestamp" bigint NOT NULL,
+    program_id text NOT NULL,
+    function_name text NOT NULL,
+    type explorer.confirmed_transaction_type NOT NULL
+);
+
+
+--
+-- Name: address_transition_detail_id_seq; Type: SEQUENCE; Schema: explorer; Owner: -
+--
+
+CREATE SEQUENCE explorer.address_transition_detail_id_seq
+    AS integer
+    START WITH 1
+    INCREMENT BY 1
+    NO MINVALUE
+    NO MAXVALUE
+    CACHE 1;
+
+
+--
+-- Name: address_transition_detail_id_seq; Type: SEQUENCE OWNED BY; Schema: explorer; Owner: -
+--
+
+ALTER SEQUENCE explorer.address_transition_detail_id_seq OWNED BY explorer.address_transition_detail.id;
+
+
+--
+-- Name: address_stake_reward; Type: TABLE; Schema: explorer; Owner: -
+--
+
+CREATE TABLE explorer.address_stake_reward (
+    id integer NOT NULL,
+    address text NOT NULL,
+    height bigint NOT NULL,
+    "timestamp" bigint NOT NULL,
+    committee_stake numeric(40,0) DEFAULT 0 NOT NULL,
+    stake_reward numeric(40,0) DEFAULT 0 NOT NULL,
+    delegate_reward numeric(40,0) DEFAULT 0 NOT NULL
+);
+
+
+--
+-- Name: address_stake_reward_id_seq; Type: SEQUENCE; Schema: explorer; Owner: -
+--
+
+CREATE SEQUENCE explorer.address_stake_reward_id_seq
+    AS integer
+    START WITH 1
+    INCREMENT BY 1
+    NO MINVALUE
+    NO MAXVALUE
+    CACHE 1;
+
+
+--
+-- Name: address_stake_reward_id_seq; Type: SEQUENCE OWNED BY; Schema: explorer; Owner: -
+--
+
+ALTER SEQUENCE explorer.address_stake_reward_id_seq OWNED BY explorer.address_stake_reward.id;
+
 
 --
 -- Name: authority; Type: TABLE; Schema: explorer; Owner: -
@@ -1718,6 +1792,20 @@ ALTER SEQUENCE explorer.transition_output_record_id_seq OWNED BY explorer.transi
 
 
 --
+-- Name: address_transition_detail id; Type: DEFAULT; Schema: explorer; Owner: -
+--
+
+ALTER TABLE ONLY explorer.address_transition_detail ALTER COLUMN id SET DEFAULT nextval('explorer.address_transition_detail_id_seq'::regclass);
+
+
+--
+-- Name: address_stake_reward id; Type: DEFAULT; Schema: explorer; Owner: -
+--
+
+ALTER TABLE ONLY explorer.address_stake_reward ALTER COLUMN id SET DEFAULT nextval('explorer.address_stake_reward_id_seq'::regclass);
+
+
+--
 -- Name: authority id; Type: DEFAULT; Schema: explorer; Owner: -
 --
 
@@ -2038,6 +2126,22 @@ ALTER TABLE ONLY explorer.transition_output_record ALTER COLUMN id SET DEFAULT n
 
 ALTER TABLE ONLY explorer.authority
     ADD CONSTRAINT authority_pk PRIMARY KEY (id);
+
+
+--
+-- Name: address_transition_detail address_transition_detail_pk; Type: CONSTRAINT; Schema: explorer; Owner: -
+--
+
+ALTER TABLE ONLY explorer.address_transition_detail
+    ADD CONSTRAINT address_transition_detail_pk PRIMARY KEY (id);
+
+
+--
+-- Name: address_stake_reward address_stake_reward_pk; Type: CONSTRAINT; Schema: explorer; Owner: -
+--
+
+ALTER TABLE ONLY explorer.address_stake_reward
+    ADD CONSTRAINT address_stake_reward_pk PRIMARY KEY (id);
 
 
 --
@@ -2457,6 +2561,32 @@ CREATE INDEX address_transition_address_index ON explorer.address_transition USI
 
 CREATE INDEX address_transition_transition_id_index ON explorer.address_transition USING btree (transition_id);
 
+
+--
+-- Name: address_transition_detail_address_index; Type: INDEX; Schema: explorer; Owner: -
+--
+
+CREATE INDEX address_transition_detail_address_index ON explorer.address_transition_detail USING btree (address text_pattern_ops);
+
+
+--
+-- Name: address_transition_detail_function_name_index; Type: INDEX; Schema: explorer; Owner: -
+--
+
+CREATE INDEX address_transition_detail_function_name_index ON explorer.address_transition_detail USING btree (function_name text_pattern_ops);
+
+
+-- Name: address_stake_reward_address_index; Type: INDEX; Schema: explorer; Owner: -
+--
+
+CREATE INDEX address_stake_reward_address_index ON explorer.address_stake_reward USING btree (address text_pattern_ops);
+
+
+--
+-- Name: address_stake_reward_timestamp_index; Type: INDEX; Schema: explorer; Owner: -
+--
+
+CREATE INDEX address_stake_reward_timestamp_index ON explorer.address_stake_reward USING btree ("timestamp");
 
 --
 -- Name: authority_block_id_index; Type: INDEX; Schema: explorer; Owner: -
