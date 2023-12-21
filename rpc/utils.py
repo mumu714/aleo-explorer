@@ -122,8 +122,11 @@ async def get_address_type(db: Database, address: str):
         }
     address_type = ""
     solution_count = await db.get_solution_count_by_address(address)
+    program_count = await db.get_program_count_by_address(address)
     if committee_state:
         address_type = "Validator"
     elif solution_count > 0:
         address_type = "Prover"
+    elif program_count > 0:
+        address_type = "Developer"
     return address_type

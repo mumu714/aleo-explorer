@@ -289,13 +289,14 @@ async def power_route(request: Request):
     }
     return JSONResponse(ctx)
 
+
 async def address_route(request: Request):
     db: Database = request.app.state.db
     address = request.query_params.get("a")
     if not address:
         raise HTTPException(status_code=400, detail="Missing address")
     solutions = await db.get_recent_solutions_by_address(address)
-    programs = await db.get_recent_programs_by_address(address)
+    programs = await db.get_programs_by_address(address)
     transitions = await db.get_address_recent_transitions(address)
     try:
         address_key = LiteralPlaintext(
@@ -379,16 +380,32 @@ async def address_route(request: Request):
             "target_sum": str(solution["target_sum"]),
             "commitment": str(solution["commitment"])
         })
-    recent_programs: list[dict[str, Any]] = []
+    deploy_programs: list[dict[str, Any]] = []
     for program in programs:
         deploy_info = await db.get_deploy_info_by_program_id(program)
         if deploy_info is None:
             raise HTTPException(status_code=550, detail="Deploy info not found")
-        recent_programs.append({
+        block = await db.get_block_by_program_id(program)
+        if block is None:
+            raise HTTPException(status_code=550, detail="Deploy block not found")
+        transaction: DeployTransaction | None = None
+        for ct in block.transactions:
+            if isinstance(ct, AcceptedDeploy):
+                tx = ct.transaction
+                if isinstance(tx, DeployTransaction) and str(tx.deployment.program.id) == program:
+                    transaction = tx
+                    break
+        if transaction is None:
+            raise HTTPException(status_code=550, detail="Deploy transaction not found")
+        base_fee, priority_fee = transaction.fee.amount
+        deploy_programs.append({
             "program_id": program,
             "height": deploy_info["height"],
             "timestamp": deploy_info["timestamp"],
+            "deploy_fee": base_fee+priority_fee,
+            "times_called": int(await db.get_program_called_times(program)),
             "transaction_id": deploy_info["transaction_id"],
+            "called_trend": await db.get_program_calls_trend(program)
         })
     if public_balance_bytes is None:
         public_balance = 0
@@ -446,6 +463,8 @@ async def address_route(request: Request):
         total_stake = await db.get_total_stake()
     elif solution_count > 0:
         address_type = "Prover"
+    elif program_count > 0:
+        address_type = "Developer"
 
     sync_info = await out_of_sync_check(db)
     network_1hour_speed = await db.get_network_speed(3600)
@@ -485,7 +504,7 @@ async def address_route(request: Request):
 
         },
         "solutions": recent_solutions,
-        "programs": recent_programs,
+        "programs": deploy_programs,
         "sync_info": sync_info,
     }
 
@@ -533,6 +552,7 @@ async def address_solution_route(request: Request):
         "sync_info": sync_info,
     }
     return JSONResponse(ctx)
+
 
 async def address_transaction_route(request: Request):
     db: Database = request.app.state.db
@@ -709,7 +729,7 @@ async def address_trending_route(request: Request):
     if len(solutions) > 0:
         cur_solution = [solution for solution in solutions if solution["timestamp"] >= trending_time]
         if type == "1d":
-            for i in range(1, 30):
+            for _ in range(1, 30):
                 counts_data.append({
                     "timestamp": trending_time,
                     "count": len(cur_solution)
@@ -726,7 +746,7 @@ async def address_trending_route(request: Request):
                                 trending_time > solution["timestamp"] >= trending_time - 86400 * 1]
                 trending_time = trending_time - 86400 * 1
         elif type == "1h":
-            for i in range(1, 24):
+            for _ in range(1, 24):
                 counts_data.append({
                     "timestamp": trending_time,
                     "count": len(cur_solution)
@@ -777,7 +797,7 @@ async def baseline_trending_route(request: Request):
     if len(solutions) > 0:
         cur_solution = [solution for solution in solutions if solution["timestamp"] >= trending_time]
         if type == "1d":
-            for i in range(1, 30):
+            for _ in range(1, 30):
                 counts_data.append({
                     "timestamp": trending_time,
                     "count": len(cur_solution)
@@ -794,7 +814,7 @@ async def baseline_trending_route(request: Request):
                                 trending_time > solution["timestamp"] >= trending_time - 86400 * 1]
                 trending_time = trending_time - 86400 * 1
         elif type == "1h":
-            for i in range(1, 24):
+            for _ in range(1, 24):
                 counts_data.append({
                     "timestamp": trending_time,
                     "count": len(cur_solution)
@@ -835,14 +855,15 @@ async def validator_trending_route(request: Request):
     profit_data: list[dict[str, Any]] = []
     if len(validator_trend) > 0:
         cur_trend = [trend for trend in validator_trend if trend["timestamp"] >= trending_time]
-        for i in range(1, 15):
+        for _ in range(1, 15):
             stake_data.append({
                 "timestamp": trending_time,
-                "value": cur_trend[0]["committee_stake"]
+                "value": int(cur_trend[0]["committee_stake"]) if cur_trend else 0
             })
             profit_data.append({
                 "timestamp": trending_time,
-                "value": sum(trend["stake_reward"]+trend["delegate_reward"]  for trend in cur_trend)
+                "value": int(sum(trend["stake_reward"]+trend["delegate_reward"]  for trend in cur_trend))
+
             })
             cur_trend = [trend for trend in validator_trend if
                             trending_time > trend["timestamp"] >= trending_time - 86400 * 1]
