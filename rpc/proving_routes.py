@@ -316,6 +316,7 @@ async def address_route(request: Request):
     unbond_state_bytes = await db.get_mapping_value("credits.aleo", "unbonded", unbonded_key_id)
     committee_state_bytes = await db.get_mapping_value("credits.aleo", "committee", committee_key_id)
     stake_reward = await db.get_address_stake_reward(address)
+    delegate_reward = await db.get_address_delegate_reward(address)
     transfer_in = await db.get_address_transfer_in(address)
     transfer_out = await db.get_address_transfer_out(address)
     fee = await db.get_address_total_fee(address)
@@ -430,6 +431,8 @@ async def address_route(request: Request):
         }
     if stake_reward is None:
         stake_reward = 0
+    if delegate_reward is None:
+        delegate_reward = 0
     if transfer_in is None:
         transfer_in = 0
     if transfer_out is None:
@@ -437,12 +440,9 @@ async def address_route(request: Request):
     if fee is None:
         fee = 0
     address_type = ""
-    total_delegators_reward = 0
     total_stake = 0
     if committee_state:
         address_type = "Validator"
-        all_delegators = await db.get_validator_bonds(address)
-        total_delegators_reward = sum(delegator["stake_reward"] for delegator in all_delegators)
         total_stake = await db.get_total_stake()
     elif solution_count > 0:
         address_type = "Prover"
@@ -473,7 +473,7 @@ async def address_route(request: Request):
         "unbond_state": unbond_state,
         "committee_state": committee_state,
         "stake_reward": stake_reward,
-        "delegators_reward": total_delegators_reward,
+        "delegate_reward": delegate_reward,
         "total_stake": total_stake,
         "transfer_in": transfer_in,
         "transfer_out": transfer_out,
@@ -820,6 +820,44 @@ async def baseline_trending_route(request: Request):
     return JSONResponse(ctx)
 
 
+async def validator_trending_route(request: Request):
+    db: Database = request.app.state.db
+    address = request.query_params.get("a")
+    if address is None:
+        raise HTTPException(status_code=400, detail="Missing address")
+    current_data = int(time.time())
+    today_zero_time = current_data - int(time.time() - time.timezone) % 86400
+    previous_timestamp = today_zero_time - 86400 * 15
+    trending_time = today_zero_time
+
+    validator_trend = await db.get_validator_trend(address, previous_timestamp)
+    stake_data: list[dict[str, Any]] = []
+    profit_data: list[dict[str, Any]] = []
+    if len(validator_trend) > 0:
+        cur_trend = [trend for trend in validator_trend if trend["timestamp"] >= trending_time]
+        for i in range(1, 15):
+            stake_data.append({
+                "timestamp": trending_time,
+                "value": cur_trend[0]["committee_stake"]
+            })
+            profit_data.append({
+                "timestamp": trending_time,
+                "value": sum(trend["stake_reward"]+trend["delegate_reward"]  for trend in cur_trend)
+            })
+            cur_trend = [trend for trend in validator_trend if
+                            trending_time > trend["timestamp"] >= trending_time - 86400 * 1]
+            trending_time = trending_time - 86400 * 1
+    sync_info = await out_of_sync_check(db)
+    ctx = {
+        "address": address,
+        "address_trunc": address[:14] + "..." + address[-6:],
+        "stake_data": stake_data,
+        "profit_data": profit_data,
+        "sync_info": sync_info,
+    }
+    return JSONResponse(ctx)
+
+
 async def validator_bonds_route(request: Request):
     db: Database = request.app.state.db
     address = request.query_params.get("a")
@@ -843,7 +881,6 @@ async def validator_bonds_route(request: Request):
     if offset < 0 or offset > delegator_count: 
         raise HTTPException(status_code=400, detail="Invalid page")
     all_delegators = sorted(all_delegators, key=lambda e: e['stake'], reverse=True)
-    total_delegators_reward = sum(delegator["stake_reward"] for delegator in all_delegators)
     if offset + limit > len(all_delegators):
         delegators = all_delegators[offset:]
     else:
@@ -852,7 +889,6 @@ async def validator_bonds_route(request: Request):
     ctx = {
         "delegators": delegators,
         "delegator_count": delegator_count,
-        "total_delegators_reward": total_delegators_reward,
         "sync_info": sync_info,
     }
     return JSONResponse(ctx)

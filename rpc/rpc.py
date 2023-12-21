@@ -98,6 +98,7 @@ routes = [
     Route("/calc", calc_route),
     Route("/validators", validators_route),
     Route("/validator/bonds", validator_bonds_route),
+    Route("/validator/trending", validator_trending_route),
     Route("/leaderboard", leaderboard_route),
     Route("/credits", credits_route),
     Route("/power/leaderboard/{type}", power_route),
