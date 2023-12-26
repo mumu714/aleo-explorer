@@ -98,7 +98,7 @@ async def program_route(request: Request):
             "key_type": str(mapping.key.plaintext_type),
             "value_type": str(mapping.value.plaintext_type)
         })
-    recent_calls = await db.get_program_calls(program_id, 0, 30)
+    recent_calls = await db.get_program_calls(program_id, 0, 10)
     for call in recent_calls:
         call_height = call["height"]
         block = await db.get_block_by_height(u32(int(call_height)))
@@ -178,6 +178,38 @@ async def program_route(request: Request):
             "owner": None,
             "signature": None,
         })
+    return JSONResponse(ctx)
+
+
+async def program_transitions_route(request: Request):
+    db: Database = request.app.state.db
+    program_id = request.query_params.get("id")
+    if program_id is None:
+        raise HTTPException(status_code=400, detail="Missing program id")
+    try:
+        limit = request.query_params.get("limit")
+        offset = request.query_params.get("offset")
+        if limit is None:
+            limit = 10
+        else:
+            limit = int(limit)
+        if offset is None:
+            offset = 0
+        else:
+            offset = int(offset)
+    except:
+        raise HTTPException(status_code=400, detail="Invalid page")
+    called_times = int(await db.get_program_called_times(program_id))
+    if offset < 0 or offset > called_times:
+        raise HTTPException(status_code=400, detail="Invalid page")
+    calls = await db.get_program_calls(program_id, offset, offset + limit)
+    sync_info = await out_of_sync_check(db)
+    ctx = {
+        "program_id": program_id,
+        "times_called": called_times,
+        "calls": calls,
+        "sync_info": sync_info,
+    }
     return JSONResponse(ctx)
 
 
