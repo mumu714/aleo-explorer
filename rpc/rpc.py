@@ -91,6 +91,7 @@ routes = [
     # Programs
     Route("/programs", programs_route),
     Route("/program", program_route),
+    Route("/program/transitions", program_transitions_route),
     Route("/similar_programs", similar_programs_route),
     Route("/upload_source", upload_source_route, methods=["GET", "POST"]),
     Route("/submit_source", submit_source_route, methods=["POST"]),
@@ -108,6 +109,7 @@ routes = [
     Route("/address_solutions", address_solution_route),
     Route("/address_transactions", address_transaction_route),
     Route("/address_function_transactions", address_function_transaction_route),
+    Route("/bonds", address_bonds_transaction_route),
     Route("/baseline_trending", baseline_trending_route),
     Route("/biggest_miners", biggest_miners_route),
     # Other
