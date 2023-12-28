@@ -16,18 +16,60 @@ class DatabaseAddress(DatabaseBase):
             return 0
         return int(data)
 
+    async def get_leaderboard_size(self) -> int:
+        async with self.pool.connection() as conn:
+            async with conn.cursor() as cur:
+                try:
+                    await cur.execute("SELECT COUNT(*) FROM leaderboard")
+                    if (res := await cur.fetchone()) is None:
+                        return 0
+                    return res["count"]
+                except Exception as e:
+                    await self.message_callback(ExplorerMessage(ExplorerMessage.Type.DatabaseError, e))
+                    raise
+
+    async def get_leaderboard(self, start: int, end: int) -> list[dict[str, Any]]:
+        async with self.pool.connection() as conn:
+            async with conn.cursor() as cur:
+                try:
+                    await cur.execute(
+                        "SELECT * FROM leaderboard "
+                        "ORDER BY total_reward DESC "
+                        "LIMIT %s OFFSET %s",
+                        (end - start, start)
+                    )
+                    return await cur.fetchall()
+                except Exception as e:
+                    await self.message_callback(ExplorerMessage(ExplorerMessage.Type.DatabaseError, e))
+                    raise
+
+    async def get_leaderboard_rewards_by_address(self, address: str) -> tuple[int, int]:
+        async with self.pool.connection() as conn:
+            async with conn.cursor() as cur:
+                try:
+                    await cur.execute(
+                        "SELECT total_reward, total_incentive FROM leaderboard WHERE address = %s", (address,)
+                    )
+                    row = await cur.fetchone()
+                    if row is None:
+                        return 0, 0
+                    return row["total_reward"], row["total_incentive"]
+                except Exception as e:
+                    await self.message_callback(ExplorerMessage(ExplorerMessage.Type.DatabaseError, e))
+                    raise
+
     async def get_recent_solutions_by_address(self, address: str) -> list[dict[str, Any]]:
         async with self.pool.connection() as conn:
             async with conn.cursor() as cur:
                 try:
                     await cur.execute(
-                        "SELECT b.height, b.timestamp, s.counter, s.target, s.solution_id, reward, ps.target_sum "
+                        "SELECT b.height, b.timestamp, s.counter, s.target, s.solution_id, reward, ps.target_sum, s.commitment "
                         "FROM solution s "
                         "JOIN puzzle_solution ps ON ps.id = s.puzzle_solution_id "
                         "JOIN block b ON b.id = ps.block_id "
                         "WHERE s.address = %s "
                         "ORDER BY ps.id DESC "
-                        "LIMIT 30",
+                        "LIMIT 10",
                         (address,)
                     )
                     return await cur.fetchall()
@@ -54,7 +96,7 @@ class DatabaseAddress(DatabaseBase):
             async with conn.cursor() as cur:
                 try:
                     await cur.execute(
-                        "SELECT b.height, b.timestamp, s.counter, s.target, s.solution_id, reward, ps.target_sum "
+                        "SELECT b.height, b.timestamp, s.counter, s.target, s.solution_id, reward, ps.target_sum, s.commitment "
                         "FROM solution s "
                         "JOIN puzzle_solution ps ON ps.id = s.puzzle_solution_id "
                         "JOIN block b ON b.id = ps.block_id "
@@ -64,6 +106,23 @@ class DatabaseAddress(DatabaseBase):
                         (address, end - start, start)
                     )
                     return await cur.fetchall()
+                except Exception as e:
+                    await self.message_callback(ExplorerMessage(ExplorerMessage.Type.DatabaseError, e))
+                    raise
+
+    async def get_solution_count_by_height(self, height: int) -> int:
+        async with self.pool.connection() as conn:
+            async with conn.cursor() as cur:
+                try:
+                    await cur.execute(
+                        "SELECT COUNT(*) FROM solution s "
+                        "JOIN puzzle_solution ps on ps.id = s.puzzle_solution_id "
+                        "JOIN block b on b.id = ps.block_id "
+                        "WHERE b.height = %s", (height,)
+                    )
+                    if (res := await cur.fetchone()) is None:
+                        return 0
+                    return res["count"]
                 except Exception as e:
                     await self.message_callback(ExplorerMessage(ExplorerMessage.Type.DatabaseError, e))
                     raise
@@ -87,6 +146,70 @@ class DatabaseAddress(DatabaseBase):
                     await self.message_callback(ExplorerMessage(ExplorerMessage.Type.DatabaseError, e))
                     raise
 
+    async def get_solutions_by_time(self, timestamp: int) -> list[dict[str, Any]]:
+        async with self.pool.connection() as conn:
+            async with conn.cursor() as cur:
+                try:
+                    await cur.execute(
+                        "SELECT s.address, b.height, b.timestamp, reward FROM solution s "
+                        "JOIN puzzle_solution ps ON ps.id = s.puzzle_solution_id "
+                        "JOIN block b ON b.id = ps.block_id "
+                        "WHERE b.timestamp > %s "
+                        "ORDER BY b.timestamp DESC ",
+                        (timestamp, )
+                    )
+                    prover_solutions = await cur.fetchall()
+                    heights = list(map(lambda x: x['height'], prover_solutions))
+                    ref_heights = list(map(lambda x: x - 1, set(heights)))
+                    await cur.execute(
+                        "SELECT height, proof_target FROM block WHERE height = ANY(%s::bigint[])", (ref_heights,)
+                    )
+                    ref_proof_targets = await cur.fetchall()
+                    ref_proof_target_dict = dict(map(lambda x: (x['height'], x['proof_target']), ref_proof_targets))
+                    def transform(x: dict[str, Any]):
+                        return {
+                            "address": x["address"],
+                            "height": x["height"],
+                            "timestamp": x["timestamp"],
+                            "reward": x["reward"],
+                            "pre_proof_target": ref_proof_target_dict[x["height"]-1]
+                        }
+                    return list(map(lambda x: transform(x), prover_solutions))
+                except Exception as e:
+                    await self.message_callback(ExplorerMessage(ExplorerMessage.Type.DatabaseError, e))
+                    raise
+
+    async def get_solutions_by_address_and_time(self, address: str, timestamp: int) -> list[dict[str, Any]]:
+        async with self.pool.connection() as conn:
+            async with conn.cursor() as cur:
+                try:
+                    await cur.execute(
+                        "SELECT b.height, b.timestamp, reward FROM solution s "
+                        "JOIN puzzle_solution ps ON ps.id = s.puzzle_solution_id "
+                        "JOIN block b ON b.id = ps.block_id "
+                        "WHERE s.address = %s AND b.timestamp > %s "
+                        "ORDER BY b.timestamp DESC ",
+                        (address, timestamp)
+                    )
+                    prover_solutions = await cur.fetchall()
+                    heights = list(map(lambda x: x['height'], prover_solutions))
+                    ref_heights = list(map(lambda x: x - 1, set(heights)))
+                    await cur.execute(
+                        "SELECT height, proof_target FROM block WHERE height = ANY(%s::bigint[])", (ref_heights,)
+                    )
+                    ref_proof_targets = await cur.fetchall()
+                    ref_proof_target_dict = dict(map(lambda x: (x['height'], x['proof_target']), ref_proof_targets))
+                    def transform(x: dict[str, Any]):
+                        return {
+                            "height": x["height"],
+                            "timestamp": x["timestamp"],
+                            "reward": x["reward"],
+                            "pre_proof_target": ref_proof_target_dict[x["height"]-1]
+                        }
+                    return list(map(lambda x: transform(x), prover_solutions))
+                except Exception as e:
+                    await self.message_callback(ExplorerMessage(ExplorerMessage.Type.DatabaseError, e))
+                    raise
 
     async def get_address_recent_transitions(self, address: str) -> list[dict[str, Any]]:
         async with self.pool.connection() as conn:
@@ -102,7 +225,9 @@ WITH ats AS
      LIMIT 30)
 SELECT DISTINCT ts.transition_id,
                 b.height,
-                b.timestamp
+                b.timestamp,
+                tx.transaction_id, 
+                ct.type
 FROM ats
 JOIN transition ts ON ats.transition_id = ts.id
 JOIN transaction_execute te ON te.id = ts.transaction_execute_id
@@ -112,7 +237,9 @@ JOIN block b ON b.id = ct.block_id
 UNION
 SELECT DISTINCT ts.transition_id,
                 b.height,
-                b.timestamp
+                b.timestamp,
+                tx.transaction_id, 
+                ct.type
 FROM ats
 JOIN transition ts ON ats.transition_id = ts.id
 JOIN fee f ON f.id = ts.fee_id
@@ -128,7 +255,9 @@ LIMIT 30
                         return {
                             "transition_id": x["transition_id"],
                             "height": x["height"],
-                            "timestamp": x["timestamp"]
+                            "timestamp": x["timestamp"],
+                            "transaction_id": x["transaction_id"],
+                            "type": x["type"]
                         }
                     return list(map(lambda x: transform(x), await cur.fetchall()))
                 except Exception as e:
@@ -137,6 +266,12 @@ LIMIT 30
 
     async def get_address_stake_reward(self, address: str) -> Optional[int]:
         data = await self.redis.hget("address_stake_reward", address)
+        if data is None:
+            return None
+        return int(data)
+
+    async def get_address_delegate_reward(self, address: str) -> Optional[int]:
+        data = await self.redis.hget("address_delegate_reward", address)
         if data is None:
             return None
         return int(data)
@@ -192,11 +327,10 @@ LIMIT 30
                     await self.message_callback(ExplorerMessage(ExplorerMessage.Type.DatabaseError, e))
                     raise
 
-    async def get_network_speed(self) -> float:
+    async def get_network_speed(self, interval: int) -> float:
         async with self.pool.connection() as conn:
             async with conn.cursor() as cur:
                 now = int(time.time())
-                interval = 900
                 try:
                     await cur.execute(
                         "SELECT b.height FROM solution s "
@@ -221,6 +355,199 @@ LIMIT 30
                     await self.message_callback(ExplorerMessage(ExplorerMessage.Type.DatabaseError, e))
                     raise
 
+    async def get_leaderboard_total(self) -> int:
+        async with self.pool.connection() as conn:
+            async with conn.cursor() as cur:
+                try:
+                    await cur.execute("SELECT total_credit FROM leaderboard_total")
+                    total_credit = await cur.fetchone()
+                    if total_credit is None:
+                        await cur.execute("INSERT INTO leaderboard_total (total_credit) VALUES (0)")
+                        return 0
+                    return int(total_credit["total_credit"])
+                except Exception as e:
+                    await self.message_callback(ExplorerMessage(ExplorerMessage.Type.DatabaseError, e))
+                    raise
+
+    async def get_puzzle_commitment(self, commitment: str) -> Optional[dict[str, Any]]:
+        async with self.pool.connection() as conn:
+            async with conn.cursor() as cur:
+                try:
+                    await cur.execute(
+                        "SELECT reward, height FROM solution s"
+                        "JOIN puzzle_solution ps on s.puzzle_solution_id = ps.id "
+                        "JOIN block b on b.id = ps.block_id "
+                        "WHERE commitment = %s",
+                        (commitment,)
+                    )
+                    row = await cur.fetchone()
+                    if row is None:
+                        return None
+                    return {
+                        'reward': row['reward'],
+                        'height': row['height']
+                    }
+                except Exception as e:
+                    await self.message_callback(ExplorerMessage(ExplorerMessage.Type.DatabaseError, e))
+                    raise
+
+    async def get_credits_leaderboard(self, start: int, end: int) -> list[dict[str, Any]]:
+        async with self.pool.connection() as conn:
+            async with conn.cursor() as cur:
+                try:
+                    await cur.execute(
+                            "SELECT address, public_credits FROM address  "
+                            "ORDER BY public_credits DESC "
+                            "LIMIT %s OFFSET %s",
+                            (end - start, start)
+                        )
+                    return await cur.fetchall()
+                except Exception as e:
+                    await self.message_callback(ExplorerMessage(ExplorerMessage.Type.DatabaseError, e))
+                    raise
+
+    async def get_credits_leaderboard_size(self) -> int:
+        async with self.pool.connection() as conn:
+            async with conn.cursor() as cur:
+                try:
+                    await cur.execute("SELECT COUNT(*) FROM address")
+                    if (res := await cur.fetchone()) is None:
+                        return 0
+                    return res["count"]
+                except Exception as e:
+                    await self.message_callback(ExplorerMessage(ExplorerMessage.Type.DatabaseError, e))
+                    raise
+
+    async def get_address_reward(self, address: str, interval: int) -> int:
+        async with self.pool.connection() as conn:
+            async with conn.cursor() as cur:
+                now = int(time.time())
+                try:
+                    await cur.execute(
+                        "SELECT ps.reward FROM prover_solution ps "
+                        "JOIN coinbase_solution cs ON ps.coinbase_solution_id = cs.id "
+                        "JOIN block b ON cs.block_id = b.id "
+                        "WHERE address = %s AND timestamp > %s",
+                        (address, now - interval)
+                    )
+                    address_rewards = await cur.fetchall()
+                    reward = sum(list(map(lambda x: x['reward'] if x['reward'] else 0, address_rewards)))
+                    return reward
+                except Exception as e:
+                    await self.message_callback(ExplorerMessage(ExplorerMessage.Type.DatabaseError, e))
+                    raise
+
+    async def get_address_info(self, address: str) -> dict[str, Any]:
+        async with self.pool.connection() as conn:
+            async with conn.cursor() as cur:
+                try:
+                    await cur.execute(
+                        "SELECT * FROM address at WHERE at.address = %s", (address,)
+                    )
+                    row = await cur.fetchone()
+                    if row is None:
+                        execution_transactions = 0
+                        fee_transactions = 0
+                        functions = []
+                    else:
+                        execution_transactions = row['execution_ts_num']
+                        fee_transactions = row['fee_ts_num']
+                        functions = row['functions']
+                    return {
+                        'execution_transactions': execution_transactions,
+                        'fee_transactions': fee_transactions,
+                        'functions': functions,
+                    }
+                except Exception as e:
+                    await self.message_callback(ExplorerMessage(ExplorerMessage.Type.DatabaseError, e))
+                    raise
+
+    async def get_address_15min_speed(self, address: str) -> float: # (speed, interval)
+        async with self.pool.connection() as conn:
+            async with conn.cursor() as cur:
+                interval = 900
+                now = int(time.time())
+                try:
+                    await cur.execute(
+                        "SELECT b.height FROM prover_solution ps "
+                        "JOIN coinbase_solution cs ON ps.coinbase_solution_id = cs.id "
+                        "JOIN block b ON cs.block_id = b.id "
+                        "WHERE address = %s AND timestamp > %s",
+                        (address, now - interval)
+                    )
+                    prover_solutions = await cur.fetchall()
+                    heights = list(map(lambda x: x['height'], prover_solutions))
+                    ref_heights = list(map(lambda x: x - 1, set(heights)))
+                    await cur.execute(
+                        "SELECT height, proof_target FROM block WHERE height = ANY(%s::bigint[])", (ref_heights,)
+                    )
+                    ref_proof_targets = await cur.fetchall()
+                    ref_proof_target_dict = dict(map(lambda x: (x['height'], x['proof_target']), ref_proof_targets))
+                    total_solutions = 0
+                    for height in heights:
+                        total_solutions += ref_proof_target_dict[height - 1]
+                    return total_solutions / interval
+                except Exception as e:
+                    await self.message_callback(ExplorerMessage(ExplorerMessage.Type.DatabaseError, e))
+                    raise
+
+    async def get_15min_top_miner(self, start: int, end: int) -> list[dict[str, Any]]:
+        async with self.pool.connection() as conn:
+            async with conn.cursor() as cur:
+                try:
+                    await cur.execute(
+                        "SELECT * FROM address_15min_hashrate "
+                        "ORDER BY hashrate DESC "
+                        "LIMIT %s OFFSET %s",
+                        (end - start, start)
+                    )
+                    return await cur.fetchall()
+                except Exception as e:
+                    await self.message_callback(ExplorerMessage(ExplorerMessage.Type.DatabaseError, e))
+                    raise
+
+    async def get_hashrate(self, start: int, end: int) -> list[dict[str, Any]]:
+        async with self.pool.connection() as conn:
+            async with conn.cursor() as cur:
+                try:
+                    await cur.execute(
+                        "SELECT * FROM hashrate "
+                        "ORDER BY timestamp DESC "
+                        "LIMIT %s OFFSET %s",
+                        (end - start, start)
+                    )
+                    return await cur.fetchall()
+                except Exception as e:
+                    await self.message_callback(ExplorerMessage(ExplorerMessage.Type.DatabaseError, e))
+                    raise
+
+    async def get_coinbase(self):
+        async with self.pool.connection() as conn:
+            async with conn.cursor() as cur:
+                try:
+                    await cur.execute("SELECT * FROM coinbase ORDER BY height")
+                    coinbase = await cur.fetchall()
+                    return coinbase
+                except Exception as e:
+                    await self.message_callback(ExplorerMessage(ExplorerMessage.Type.DatabaseError, e))
+                    raise
+
+    async def get_network_reward(self, interval: int) -> int:
+        async with self.pool.connection() as conn:
+            async with conn.cursor() as cur:
+                now = int(time.time())
+                try:
+                    await cur.execute(
+                        "SELECT coinbase_reward FROM block b  "
+                        "WHERE timestamp > %s",
+                        (now - interval,)
+                    )
+                    coinbase_rewards = await cur.fetchall()
+                    reward = sum(list(map(lambda x: x['coinbase_reward'] if x['coinbase_reward'] else 0, coinbase_rewards)))
+                    return reward // 2
+                except Exception as e:
+                    await self.message_callback(ExplorerMessage(ExplorerMessage.Type.DatabaseError, e))
+                    raise
     async def get_total_solution_count(self) -> int:
         async with self.pool.connection() as conn:
             async with conn.cursor() as cur:

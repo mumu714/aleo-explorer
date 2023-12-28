@@ -1,7 +1,6 @@
 from typing import Any
-from db import Block
 from decimal import Decimal
-from aleo_types import BlockRewardRatify, PuzzleRewardRatify, GenesisRatify, QuorumAuthority, BeaconAuthority
+from aleo_types import Block, BlockRewardRatify, PuzzleRewardRatify, GenesisRatify, QuorumAuthority, BeaconAuthority
 
 def format_block(block: Block):
     authority_type = ""
