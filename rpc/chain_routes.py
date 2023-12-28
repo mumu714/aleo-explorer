@@ -596,7 +596,7 @@ async def transition_route(request: Request):
                 "type": "Record",
                 "id": str(output.commitment),
                 "checksum": str(output.checksum),
-                "record": str(output.record_ciphertext.value),
+                "value": str(output.record_ciphertext.value),
             }
             record = output.record_ciphertext.value
             if record is not None:
@@ -612,7 +612,7 @@ async def transition_route(request: Request):
         elif isinstance(output, ExternalRecordTransitionOutput):
             outputs.append({
                 "type": "External record",
-                "commitment": str(output.commitment),
+                "id": str(output.commitment),
             })
         elif isinstance(output, FutureTransitionOutput):
             future = output.future.value
