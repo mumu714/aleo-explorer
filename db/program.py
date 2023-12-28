@@ -3,6 +3,7 @@ from __future__ import annotations
 from aleo_types import *
 from explorer.types import Message as ExplorerMessage
 from .base import DatabaseBase
+import time
 
 
 class DatabaseProgram(DatabaseBase):
@@ -55,8 +56,8 @@ class DatabaseProgram(DatabaseBase):
                         "JOIN block b on ct.block_id = b.id "
                         "JOIN program_function pf on p.id = pf.program_id "
                         f"{where}"
-                        "GROUP BY p.program_id, b.height, p.id, t.transaction_id "
-                        "ORDER BY p.id DESC "
+                        "GROUP BY p.program_id, b.height, t.transaction_id "
+                        "ORDER BY SUM(pf.called) DESC "
                         "LIMIT %s OFFSET %s",
                         (end - start, start)
                     )
@@ -100,28 +101,6 @@ class DatabaseProgram(DatabaseBase):
                         (feature_hash, end - start, start)
                     )
                     return await cur.fetchall()
-                except Exception as e:
-                    await self.message_callback(ExplorerMessage(ExplorerMessage.Type.DatabaseError, e))
-                    raise
-
-
-    async def get_block_by_program_id(self, program_id: str) -> Block | None:
-        async with self.pool.connection() as conn:
-            async with conn.cursor() as cur:
-                try:
-                    await cur.execute(
-                        "SELECT height FROM transaction tx "
-                        "JOIN transaction_deploy td on tx.id = td.transaction_id "
-                        "JOIN program p on td.id = p.transaction_deploy_id "
-                        "JOIN confirmed_transaction ct on ct.id = tx.confimed_transaction_id "
-                        "JOIN block b on ct.block_id = b.id "
-                        "WHERE p.program_id = %s",
-                        (program_id,)
-                    )
-                    height = await cur.fetchone()
-                    if height is None:
-                        return None
-                    return await self.get_block_by_height(height["height"])
                 except Exception as e:
                     await self.message_callback(ExplorerMessage(ExplorerMessage.Type.DatabaseError, e))
                     raise
@@ -223,7 +202,7 @@ class DatabaseProgram(DatabaseBase):
             async with conn.cursor() as cur:
                 try:
                     await cur.execute(
-                        "SELECT program_id FROM program WHERE owner = %s ORDER BY id DESC LIMIT 30", (address,)
+                        "SELECT program_id FROM program WHERE owner = %s ORDER BY id DESC LIMIT 10", (address,)
                     )
                     return list(map(lambda x: x['program_id'], await cur.fetchall()))
                 except Exception as e:
@@ -299,6 +278,53 @@ class DatabaseProgram(DatabaseBase):
                     if (res := await cur.fetchone()) is None:
                         return None
                     return res['program_id']
+                except Exception as e:
+                    await self.message_callback(ExplorerMessage(ExplorerMessage.Type.DatabaseError, e))
+                    raise
+
+    async def get_program_calls_trend(self, program_id: str) -> list[dict[str, Any]]:
+        async with self.pool.connection() as conn:
+            async with conn.cursor() as cur:
+                try:
+                    current_data = int(time.time())
+                    today_zero_time = current_data - int(time.time() - time.timezone) % 86400
+                    previous_timestamp = today_zero_time - 86400 * 30
+                    trending_time = today_zero_time
+                    await cur.execute(
+                        "SELECT b.timestamp, ts.transition_id FROM transition ts "
+                        "JOIN transaction_execute te on te.id = ts.transaction_execute_id "
+                        "JOIN transaction t on te.transaction_id = t.id "
+                        "JOIN confirmed_transaction ct on t.confimed_transaction_id = ct.id "
+                        "JOIN block b on ct.block_id = b.id "
+                        "WHERE ts.program_id = %s AND b.timestamp > %s "
+                        "ORDER BY b.height DESC ",
+                        (program_id, previous_timestamp)
+                    )
+                    trend_record = await cur.fetchall()
+                    calls_list: list[dict[str, Any]] = []
+                    if len(trend_record) > 0:
+                        calls = [call for call in trend_record if call["timestamp"] >= trending_time]
+                        for _ in range(1, 30):
+                            calls_list.append({
+                                "timestamp": trending_time,
+                                "value": len(calls)
+                            })
+                            calls = [call for call in trend_record if
+                                            trending_time > call["timestamp"] >= trending_time - 86400 * 1]
+                            trending_time = trending_time - 86400 * 1
+                    return calls_list
+                except Exception as e:
+                    await self.message_callback(ExplorerMessage(ExplorerMessage.Type.DatabaseError, e))
+                    raise
+
+    async def get_programs_by_address(self, address: str) -> list[str]:
+        async with self.pool.connection() as conn:
+            async with conn.cursor() as cur:
+                try:
+                    await cur.execute(
+                        "SELECT program_id FROM program WHERE owner = %s ORDER BY id DESC", (address,)
+                    )
+                    return list(map(lambda x: x['program_id'], await cur.fetchall()))
                 except Exception as e:
                     await self.message_callback(ExplorerMessage(ExplorerMessage.Type.DatabaseError, e))
                     raise

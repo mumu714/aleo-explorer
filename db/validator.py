@@ -3,7 +3,8 @@ from __future__ import annotations
 from aleo_types import *
 from explorer.types import Message as ExplorerMessage
 from .base import DatabaseBase
-
+from .mapping import DatabaseMapping
+from .address import DatabaseAddress
 
 class DatabaseValidator(DatabaseBase):
 
@@ -201,6 +202,113 @@ class DatabaseValidator(DatabaseBase):
                         (height,)
                     )
                     return validators, await cur.fetchall()
+                except Exception as e:
+                    await self.message_callback(ExplorerMessage(ExplorerMessage.Type.DatabaseError, e))
+                    raise
+
+    async def get_validators(self, start: int, end: int) -> tuple[dict[str, Any], list[dict[str, Any]]]:
+        async with self.pool.connection() as conn:
+            async with conn.cursor() as cur:
+                try:
+                    await cur.execute("SELECT * FROM committee_history ORDER BY height DESC LIMIT 1")
+                    committee = await cur.fetchone()
+                    if committee is None:
+                        raise RuntimeError("no committee in database")
+                    await cur.execute("SELECT * FROM committee_history_member WHERE committee_id = %s "
+                                      "ORDER BY stake DESC LIMIT %s OFFSET %s",
+                                      (committee["id"], end - start, start)
+                            )
+                    committee_member = await cur.fetchall()
+                    return committee, committee_member
+                except Exception as e:
+                    await self.message_callback(ExplorerMessage(ExplorerMessage.Type.DatabaseError, e))
+                    raise
+
+    async def get_validator_trend(self, address: str, timestamp: int) -> list[dict[str, Any]]:
+        async with self.pool.connection() as conn:
+            async with conn.cursor() as cur:
+                try:
+                    await cur.execute(
+                        "SELECT height, timestamp, committee_stake, stake_reward, delegate_reward FROM address_stake_reward "
+                        "WHERE address = %s AND timestamp > %s "
+                        "ORDER BY timestamp DESC ",
+                        (address, timestamp)
+                    )
+                    return await cur.fetchall()
+                except Exception as e:
+                    await self.message_callback(ExplorerMessage(ExplorerMessage.Type.DatabaseError, e))
+                    raise
+
+    async def get_validators_size(self) -> int:
+        async with self.pool.connection() as conn:
+            async with conn.cursor() as cur:
+                try:
+                    await cur.execute("SELECT * FROM committee_history ORDER BY height DESC LIMIT 1")
+                    committee = await cur.fetchone()
+                    if committee is None:
+                        raise RuntimeError("no committee in database")
+                    await cur.execute("SELECT COUNT(*) FROM committee_history_member WHERE committee_id = %s",
+                                      (committee["id"],))
+                    if (res := await cur.fetchone()) is None:
+                        return 0
+                    return res["count"]
+                except Exception as e:
+                    await self.message_callback(ExplorerMessage(ExplorerMessage.Type.DatabaseError, e))
+                    raise
+
+    async def get_validator_bonds(self, address: str) -> list[dict[str, Any]]:
+        try:
+            stakers = await DatabaseMapping.get_bonded_mapping(self)
+            all_delegators: list[dict[str, Any]] = []
+            for delegator, (validator, stake) in stakers.items():
+                if str(validator) == address:
+                    stake_reward = await DatabaseAddress.get_address_stake_reward(self, address)
+                    all_delegators.append({
+                        "address": str(delegator),
+                        "stake": int(stake),
+                        "stake_reward": stake_reward
+                    })
+            return all_delegators
+        except Exception as e:
+            await self.message_callback(ExplorerMessage(ExplorerMessage.Type.DatabaseError, e))
+            raise
+
+    async def get_unbond_validator_by_address(self, address: str, height: int) -> Optional[str]:
+        async with self.pool.connection() as conn:
+            async with conn.cursor() as cur:
+                try:
+                    await cur.execute("SELECT * FROM mapping_bonded_history WHERE height = %s", (height-1,))
+                    row = await cur.fetchone()
+                    validator = None
+                    if row is None:
+                        return validator
+                    address_bond: dict[str, Any] = {}
+                    for content in row["content"].values():
+                        key = Plaintext.load(BytesIO(bytes.fromhex(content["key"])))
+                        if str(key) == address:
+                            value = Value.load(BytesIO(bytes.fromhex(content["value"])))
+                            if not isinstance(value, PlaintextValue):
+                                raise RuntimeError("invalid bonded value")
+                            plaintext = value.plaintext
+                            if not isinstance(plaintext, StructPlaintext):
+                                raise RuntimeError("invalid bonded value")
+                            address_bond[str(plaintext["validator"])] = plaintext["microcredits"]
+                    if len(address_bond) == 1:
+                        validator = list(address_bond.keys())[0]
+                    return validator
+                except Exception as e:
+                    await self.message_callback(ExplorerMessage(ExplorerMessage.Type.DatabaseError, e))
+                    raise
+
+    async def get_total_stake(self) -> int:
+        async with self.pool.connection() as conn:
+            async with conn.cursor() as cur:
+                try:
+                    await cur.execute("SELECT total_stake FROM committee_history ORDER BY height DESC LIMIT 1")
+                    committee = await cur.fetchone()
+                    if committee is None:
+                        raise RuntimeError("no committee in database")
+                    return int(committee["total_stake"])
                 except Exception as e:
                     await self.message_callback(ExplorerMessage(ExplorerMessage.Type.DatabaseError, e))
                     raise

@@ -62,7 +62,7 @@ class DatabaseBlock(DatabaseBase):
             program_id = res["program_id"]
             function_name = res["function_name"]
             await cur.execute(
-                "SELECT id, type, plaintext FROM future_argument WHERE future_id = %s",
+                "SELECT id, type, plaintext FROM future_argument WHERE future_id = %s ORDER BY id",
                 (future_db_id,)
             )
             arguments: list[Argument] = []
@@ -239,6 +239,27 @@ class DatabaseBlock(DatabaseBase):
                     if transaction_id is None:
                         return None
                     return await self.get_block_from_transaction_id(transaction_id['transaction_id'])
+                except Exception as e:
+                    await self.message_callback(ExplorerMessage(ExplorerMessage.Type.DatabaseError, e))
+                    raise
+
+    async def get_block_by_program_id(self, program_id: str) -> Block | None:
+        async with self.pool.connection() as conn:
+            async with conn.cursor() as cur:
+                try:
+                    await cur.execute(
+                        "SELECT height FROM transaction tx "
+                        "JOIN transaction_deploy td on tx.id = td.transaction_id "
+                        "JOIN program p on td.id = p.transaction_deploy_id "
+                        "JOIN confirmed_transaction ct on ct.id = tx.confimed_transaction_id "
+                        "JOIN block b on ct.block_id = b.id "
+                        "WHERE p.program_id = %s",
+                        (program_id,)
+                    )
+                    height = await cur.fetchone()
+                    if height is None:
+                        return None
+                    return await self.get_block_by_height(height["height"])
                 except Exception as e:
                     await self.message_callback(ExplorerMessage(ExplorerMessage.Type.DatabaseError, e))
                     raise
@@ -889,11 +910,11 @@ class DatabaseBlock(DatabaseBase):
                     )
                     tids: list[TransmissionID] = []
                     for tid in await cur.fetchall():
-                        if tid["type"] == TransmissionID.Type.Ratification:
+                        if tid["type"] == TransmissionID.Type.Ratification.name:
                             tids.append(RatificationTransmissionID())
-                        elif tid["type"] == TransmissionID.Type.Solution:
+                        elif tid["type"] == TransmissionID.Type.Solution.name:
                             tids.append(SolutionTransmissionID(id_=PuzzleCommitment.loads(tid["commitment"])))
-                        elif tid["type"] == TransmissionID.Type.Transaction:
+                        elif tid["type"] == TransmissionID.Type.Transaction.name:
                             tids.append(TransactionTransmissionID(id_=TransactionID.loads(tid["transaction_id"])))
 
                     if dag_vertex["batch_certificate_id"] is not None:

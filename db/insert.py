@@ -5,8 +5,11 @@ import os
 import signal
 import time
 from collections import defaultdict
+from typing import cast
+import time
 
 import psycopg.sql
+from psycopg.types.json import Jsonb
 from redis.asyncio import Redis
 
 from aleo_types import *
@@ -15,6 +18,9 @@ from explorer.types import Message as ExplorerMessage
 from util.global_cache import global_mapping_cache
 from .base import DatabaseBase, profile
 from .util import DatabaseUtil
+from .mapping import DatabaseMapping
+from .address import DatabaseAddress
+from .block import DatabaseBlock
 
 
 class DatabaseInsert(DatabaseBase):
@@ -24,9 +30,73 @@ class DatabaseInsert(DatabaseBase):
         self.redis_last_history_time = time.monotonic() - 21600
 
     @staticmethod
+    async def _insert_address_info(conn: psycopg.AsyncConnection[dict[str, Any]], address_list: list[str],
+                                 exe_tx_db_id: Optional[int], fee_db_id: Optional[int], function_name: str):
+        async with conn.cursor() as cur:
+            for address in list(set(address_list)):
+                execution_ts_num = 0
+                fee_ts_num = 0
+                if exe_tx_db_id: execution_ts_num = 1
+                if fee_db_id: fee_ts_num = 1
+                await cur.execute(
+                    "INSERT INTO address (address, execution_ts_num, fee_ts_num) VALUES (%s, %s, %s)"
+                    "ON CONFLICT (address) DO UPDATE SET execution_ts_num = address.execution_ts_num + %s, "
+                    "fee_ts_num = address.fee_ts_num + %s RETURNING functions, execution_ts_num, fee_ts_num",
+                    (address, execution_ts_num, fee_ts_num, execution_ts_num, fee_ts_num)
+                )
+                if (res := await cur.fetchone()) is None:
+                    raise RuntimeError("failed to insert row into database")
+                functions = res["functions"]
+                if functions == None:
+                    functions = [function_name]
+                    await cur.execute(
+                        "INSERT INTO address (address, functions) VALUES (%s, %s) "
+                        "ON CONFLICT (address) DO UPDATE SET functions = %s",
+                        (address, functions, functions)
+                    )
+                if function_name not in functions:
+                    functions.append(function_name)
+                    await cur.execute(
+                        "INSERT INTO address (address, functions) VALUES (%s, %s) "
+                        "ON CONFLICT (address) DO UPDATE SET functions = %s",
+                        (address, functions, functions)
+                    )
+
+    @staticmethod
+    async def _insert_address_transition_detail(conn: psycopg.AsyncConnection[dict[str, Any]], address: str, transition_id: int):
+        async with conn.cursor() as cur:
+            await cur.execute(
+                    "SELECT t.transition_id, b.height, b.timestamp, t2.transaction_id, ct.type, "
+                    "t.function_name, t.program_id FROM transition t "
+                    "LEFT JOIN transaction_execute te on te.id = t.transaction_execute_id "
+                    "LEFT JOIN fee on fee.id = t.fee_id "
+                    "LEFT JOIN transaction t2 on t2.id = te.transaction_id OR t2.id = fee.transaction_id "
+                    "JOIN confirmed_transaction ct on ct.id = t2.confimed_transaction_id "
+                    "JOIN block b on b.id = ct.block_id "
+                    "WHERE t.id = %s",
+                    (transition_id,)
+                )
+            if (res := await cur.fetchone()) is None:
+                raise RuntimeError("database inconsistent")
+            transition_id = res["transition_id"]
+            transaction_id = res["transaction_id"]
+            height = res["height"]
+            timestamp = res["timestamp"]
+            transition_type = res["type"]
+            function_name = res["function_name"]
+            program_id = res["program_id"]
+            await cur.execute(
+                "INSERT INTO address_transition_detail "
+                "(address, transition_id, transaction_id, height, timestamp, program_id, function_name, type) "
+                "VALUES (%s, %s, %s, %s, %s, %s, %s, %s)",
+                (address, transition_id, transaction_id,  height, timestamp, program_id, function_name, transition_type)
+            )
+
+    @staticmethod
     async def _insert_future(conn: psycopg.AsyncConnection[dict[str, Any]], future: Future,
                              transition_output_future_db_id: Optional[int] = None, argument_db_id: Optional[int] = None,):
         async with conn.cursor() as cur:
+            address_list: list[str] = []
             if transition_output_future_db_id:
                 await cur.execute(
                     "INSERT INTO future (type, transition_output_future_id, program_id, function_name) "
@@ -93,6 +163,8 @@ class DatabaseInsert(DatabaseBase):
                             "INSERT INTO address_transition (address, transition_id) VALUES (%s, %s)",
                             (address, transition_db_id)
                         )
+                        await DatabaseInsert._insert_address_transition_detail(conn, address, transition_db_id)
+                        address_list.append(address)
                     elif isinstance(plaintext, StructPlaintext):
                         addresses = DatabaseUtil.get_addresses_from_struct(plaintext)
                         for address in addresses:
@@ -100,7 +172,8 @@ class DatabaseInsert(DatabaseBase):
                                 "INSERT INTO address_transition (address, transition_id) VALUES (%s, %s)",
                                 (address, transition_db_id)
                             )
-
+                            await DatabaseInsert._insert_address_transition_detail(conn, address, transition_db_id)
+                            address_list.append(address)
                 elif isinstance(argument, FutureArgument):
                     await cur.execute(
                         "INSERT INTO future_argument (future_id, type) VALUES (%s, %s) RETURNING id",
@@ -112,6 +185,7 @@ class DatabaseInsert(DatabaseBase):
                     await DatabaseInsert._insert_future(conn, argument.future, argument_db_id=argument_db_id)
                 else:
                     raise NotImplementedError
+            return address_list
 
     @staticmethod
     async def _insert_transition(conn: psycopg.AsyncConnection[dict[str, Any]], redis_conn: Redis[str],
@@ -136,6 +210,7 @@ class DatabaseInsert(DatabaseBase):
             if (res := await cur.fetchone()) is None:
                 raise RuntimeError("failed to insert row into database")
             transition_db_id = res["id"]
+            address_list: list[str] = []
 
             transition_input: TransitionInput
             for input_index, transition_input in enumerate(transition.inputs):
@@ -161,6 +236,8 @@ class DatabaseInsert(DatabaseBase):
                                 "INSERT INTO address_transition (address, transition_id) VALUES (%s, %s)",
                                 (address, transition_db_id)
                             )
+                            await DatabaseInsert._insert_address_transition_detail(conn, address, transition_db_id)
+                            address_list.append(address)
                         elif isinstance(plaintext, StructPlaintext):
                             addresses = DatabaseUtil.get_addresses_from_struct(plaintext)
                             for address in addresses:
@@ -168,6 +245,8 @@ class DatabaseInsert(DatabaseBase):
                                     "INSERT INTO address_transition (address, transition_id) VALUES (%s, %s)",
                                     (address, transition_db_id)
                                 )
+                                await DatabaseInsert._insert_address_transition_detail(conn, address, transition_db_id)
+                                address_list.append(address)
                 elif isinstance(transition_input, PrivateTransitionInput):
                     await cur.execute(
                         "INSERT INTO transition_input_private (transition_input_id, ciphertext_hash, ciphertext) "
@@ -238,9 +317,11 @@ class DatabaseInsert(DatabaseBase):
                         raise Exception("failed to insert row into database")
                     transition_output_future_db_id = res["id"]
                     if transition_output.future.value is not None:
-                        await DatabaseInsert._insert_future(conn, transition_output.future.value, transition_output_future_db_id)
+                        address_list += await DatabaseInsert._insert_future(conn, transition_output.future.value, transition_output_future_db_id)
                 else:
                     raise NotImplementedError
+
+            await DatabaseInsert._insert_address_info(conn, address_list, exe_tx_db_id, fee_db_id, str(transition.function_name))
 
             await cur.execute(
                 "SELECT id FROM program WHERE program_id = %s", (str(transition.program_id),)
@@ -672,10 +753,10 @@ class DatabaseInsert(DatabaseBase):
         await redis_conn.delete("credits.aleo:bonded")
         await redis_conn.hset("credits.aleo:bonded", mapping={k: json.dumps(v) for k, v in bonded_mapping.items()})
         await redis_conn.execute_command("EXEC")
-        # await cur.execute(
-        #     "INSERT INTO mapping_bonded_history (height, content) VALUES (%s, %s)",
-        #     (height, Jsonb(bonded_mapping))
-        # )
+        await cur.execute(
+            "INSERT INTO mapping_bonded_history (height, content) VALUES (%s, %s)",
+            (height, Jsonb(bonded_mapping))
+        )
 
     @staticmethod
     async def _save_committee_history(cur: psycopg.AsyncCursor[dict[str, Any]], height: int, committee: Committee):
@@ -809,8 +890,9 @@ class DatabaseInsert(DatabaseBase):
                        stakers: dict[Address, tuple[Address, u64]], block_reward: u64):
         total_stake = sum(x[0] for x in committee_members.values())
         stake_rewards: dict[Address, int] = {}
+        stake_delegate_reward: dict[Address, dict[str, Any]] = {}
         if not stakers or total_stake == 0 or block_reward == 0:
-            return stakers, stake_rewards
+            return stakers, stake_rewards, stake_delegate_reward
 
         new_stakers: dict[Address, tuple[Address, u64]] = {}
 
@@ -828,7 +910,18 @@ class DatabaseInsert(DatabaseBase):
             new_stake = stake + reward
             new_stakers[staker] = validator, u64(new_stake)
 
-        return new_stakers, stake_rewards
+            if validator not in stake_delegate_reward:
+                stake_delegate_reward[validator] = {
+                    "committee_stake": committee_members[validator][0],
+                    "stake_reward": 0,
+                    "delegate_reward": 0
+                }
+            if staker == validator:
+                stake_delegate_reward[validator]["stake_reward"] = reward
+            else:
+                stake_delegate_reward[validator]["delegate_reward"] += reward
+
+        return new_stakers, stake_rewards, stake_delegate_reward
 
     @staticmethod
     @profile
@@ -844,12 +937,13 @@ class DatabaseInsert(DatabaseBase):
 
     @profile
     async def _post_ratify(self, cur: psycopg.AsyncCursor[dict[str, Any]], redis_conn: Redis[str], height: int, round_: int,
-                           ratifications: list[Ratify], address_puzzle_rewards: dict[str, int]):
+                           timestamp: int, ratifications: list[Ratify], address_puzzle_rewards: dict[str, int]):
         from interpreter.interpreter import global_mapping_cache
 
         for ratification in ratifications:
             if isinstance(ratification, BlockRewardRatify):
                 committee_members = await DatabaseInsert._get_committee_mapping(redis_conn)
+                stakers = await DatabaseMapping.get_bonded_mapping(self)
                 mapping_id = Field.loads(cached_get_mapping_id("credits.aleo", "bonded"))
                 if mapping_id in global_mapping_cache:
                     data = global_mapping_cache[mapping_id]
@@ -867,12 +961,23 @@ class DatabaseInsert(DatabaseBase):
 
                 DatabaseInsert._check_committee_staker_match(committee_members, stakers)
 
-                stakers, stake_rewards = DatabaseInsert._stake_rewards(committee_members, stakers, ratification.amount)
+                stakers, stake_rewards, stake_delegate_reward = DatabaseInsert._stake_rewards(committee_members, stakers, ratification.amount)
                 committee_members = DatabaseInsert._next_committee_members(committee_members, stakers)
+
+                for address, value in stake_delegate_reward.items():
+                    await cur.execute(
+                        "INSERT INTO address_stake_reward "
+                        "(address, height, timestamp, committee_stake, stake_reward, delegate_reward) "
+                        "VALUES (%s, %s, %s, %s, %s, %s)",
+                        (str(address), height, timestamp, value["committee_stake"], value["stake_reward"], value["delegate_reward"])
+                    )
 
                 pipe = self.redis.pipeline()
                 for address, amount in stake_rewards.items():
-                    pipe.hincrby("address_stake_reward", str(address), amount)
+                    await pipe.hincrby("address_stake_reward", str(address), amount)
+
+                for address, value in stake_delegate_reward.items():
+                    await pipe.hincrby("address_delegate_reward", str(address), value["delegate_reward"])
                 await pipe.execute()
 
                 await DatabaseInsert._update_committee_bonded_map(cur, self.redis, committee_members, stakers, height)
@@ -984,8 +1089,8 @@ class DatabaseInsert(DatabaseBase):
                     try:
                         if block.height != 0:
                             block_reward, coinbase_reward = block.compute_rewards(
-                                await self.get_latest_coinbase_target(),
-                                await self.get_latest_cumulative_proof_target()
+                                await DatabaseBlock.get_latest_coinbase_target(self),
+                                await DatabaseBlock.get_latest_cumulative_proof_target(self)
                             )
                             puzzle_reward = coinbase_reward // 2
                         else:
@@ -1299,7 +1404,7 @@ class DatabaseInsert(DatabaseBase):
                                 (block_db_id, str(aborted))
                             )
 
-                        await self._post_ratify(cur, self.redis, block.height, block.round, block.ratifications.ratifications, address_puzzle_rewards)
+                        await self._post_ratify(cur, self.redis, block.height, block.round, block.header.metadata.timestamp, block.ratifications.ratifications, address_puzzle_rewards)
 
                         if block.height % 100 == 0:
                             await self.cleanup_unconfirmed_transactions()
@@ -1339,6 +1444,91 @@ class DatabaseInsert(DatabaseBase):
             async with conn.cursor() as cur:
                 try:
                     await cur.execute("INSERT INTO feedback (contact, content) VALUES (%s, %s)", (contact, content))
+                except Exception as e:
+                    await self.message_callback(ExplorerMessage(ExplorerMessage.Type.DatabaseError, e))
+                    raise
+
+    async def save_hashrate(self):
+        now = int(time.time())
+        hashrate = await DatabaseAddress.get_network_speed(self, 900)
+        async with self.pool.connection() as conn:
+            async with conn.cursor() as cur:
+                try:
+                    await cur.execute(
+                        "INSERT INTO hashrate (timestamp, hashrate) "
+                        "VALUES (%s, %s) ",
+                        (now, hashrate)
+                    )
+                except Exception as e:
+                    await self.message_callback(ExplorerMessage(ExplorerMessage.Type.DatabaseError, e))
+                    raise
+
+    async def save_address_15min_hashrate(self, address: str):
+        now = int(time.time())
+        address_hashrate = await DatabaseAddress.get_address_15min_speed(self, address)
+        async with self.pool.connection() as conn:
+            async with conn.cursor() as cur:
+                try:
+                    await cur.execute(
+                        "INSERT INTO address_15min_hashrate (timestamp, address, hashrate) "
+                        "VALUES (%s, %s, %s) "
+                        "ON CONFLICT (address) DO UPDATE SET timestamp = %s, hashrate = %s",
+                        (now, address, address_hashrate, now, address_hashrate)
+                    )
+                except Exception as e:
+                    await self.message_callback(ExplorerMessage(ExplorerMessage.Type.DatabaseError, e))
+                    raise
+
+    async def update_15min_address_hashrate(self):
+        async with self.pool.connection() as conn:
+            async with conn.cursor() as cur:
+                now = int(time.time())
+                interval = 900
+                try:
+                    await cur.execute(
+                        "SELECT ps.address FROM prover_solution ps "
+                        "JOIN coinbase_solution cs ON ps.coinbase_solution_id = cs.id "
+                        "JOIN block b ON cs.block_id = b.id "
+                        "WHERE timestamp > %s",
+                        (now - interval,)
+                    )
+                    prover_solutions = await cur.fetchall()
+                    addresses = set(map(lambda x: x['address'], prover_solutions))
+                    for address in addresses:
+                        await self.save_address_15min_hashrate(address)
+                except Exception as e:
+                    await self.message_callback(ExplorerMessage(ExplorerMessage.Type.DatabaseError, e))
+                    raise
+
+    async def _save_coinbase(self, height: int, reward: float):
+        async with self.pool.connection() as conn:
+            async with conn.cursor() as cur:
+                try:
+                    await cur.execute(
+                        "INSERT INTO coinbase (height, reward) "
+                        "VALUES (%s, %s) ON CONFLICT (height) DO NOTHING",
+                        (height, reward)
+                    )
+                except Exception as e:
+                    await self.message_callback(ExplorerMessage(ExplorerMessage.Type.DatabaseError, e))
+                    raise
+
+    async def save_one_day_coinbase(self):
+        async with self.pool.connection() as conn:
+            async with conn.cursor() as cur:
+                try:
+                    await cur.execute("SELECT * FROM block ORDER BY height")
+                    blocks = await cur.fetchall()
+                    sum = 0
+                    count = 0
+                    for block in blocks:
+                        if count == 5760:
+                            await self._save_coinbase(block["height"], sum / count)
+                            sum = 0
+                            count = 0
+                        count += 1
+                        if block["coinbase_reward"] is not None:
+                            sum += block["coinbase_reward"]
                 except Exception as e:
                     await self.message_callback(ExplorerMessage(ExplorerMessage.Type.DatabaseError, e))
                     raise

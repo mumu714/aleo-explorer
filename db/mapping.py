@@ -6,6 +6,7 @@ import psycopg.sql
 from aleo_types import *
 from explorer.types import Message as ExplorerMessage
 from .base import DatabaseBase
+from typing import cast
 
 
 class DatabaseMapping(DatabaseBase):
@@ -218,6 +219,17 @@ class DatabaseMapping(DatabaseBase):
                     "ON CONFLICT (key_id) DO UPDATE SET last_history_id = %s",
                     (key_id, latest_id, latest_id)
                 )
+
+                if program_name == "credits.aleo" and mapping_name == "account":
+                    address = str(Plaintext.load(BytesIO(key)))
+                    plaintextvalue = cast(PlaintextValue, Value.load(BytesIO(value)))
+                    plaintext = cast(LiteralPlaintext, plaintextvalue.plaintext)
+                    public_balance = int(plaintext.literal.primitive)
+                    await cur.execute(
+                        "INSERT INTO address (address, public_credits) VALUES (%s, %s) "
+                        "ON CONFLICT (address) DO UPDATE SET public_credits = %s",
+                        (address, public_balance, public_balance)
+                    )
 
         except Exception as e:
             await self.message_callback(ExplorerMessage(ExplorerMessage.Type.DatabaseError, e))
