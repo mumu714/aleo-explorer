@@ -1,4 +1,3 @@
-
 from .address import DatabaseAddress
 from .block import DatabaseBlock
 from .insert import DatabaseInsert
@@ -8,7 +7,9 @@ from .program import DatabaseProgram
 from .search import DatabaseSearch
 from .util import DatabaseUtil
 from .validator import DatabaseValidator
+from .transaction import DatabaseTransaction
+
 
 class Database(DatabaseAddress, DatabaseBlock, DatabaseInsert, DatabaseMapping, DatabaseMigrate, DatabaseProgram,
-               DatabaseSearch, DatabaseUtil, DatabaseValidator):
+               DatabaseSearch, DatabaseUtil, DatabaseValidator, DatabaseTransaction):
     pass

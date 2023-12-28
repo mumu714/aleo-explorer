@@ -64,7 +64,7 @@ class DatabaseBlock(DatabaseBase):
             program_id = res["program_id"]
             function_name = res["function_name"]
             await cur.execute(
-                "SELECT id, type, plaintext FROM future_argument WHERE future_id = %s",
+                "SELECT id, type, plaintext FROM future_argument WHERE future_id = %s ORDER BY id",
                 (future_db_id,)
             )
             arguments: list[Argument] = []
@@ -901,11 +901,11 @@ class DatabaseBlock(DatabaseBase):
                     )
                     tids: list[TransmissionID] = []
                     for tid in await cur.fetchall():
-                        if tid["type"] == TransmissionID.Type.Ratification:
+                        if tid["type"] == TransmissionID.Type.Ratification.name:
                             tids.append(RatificationTransmissionID())
-                        elif tid["type"] == TransmissionID.Type.Solution:
+                        elif tid["type"] == TransmissionID.Type.Solution.name:
                             tids.append(SolutionTransmissionID(id_=SolutionID.loads(tid["commitment"]), checksum=u128()))
-                        elif tid["type"] == TransmissionID.Type.Transaction:
+                        elif tid["type"] == TransmissionID.Type.Transaction.name:
                             tids.append(TransactionTransmissionID(id_=TransactionID.loads(tid["transaction_id"]), checksum=u128()))
 
                     certificates.append(
