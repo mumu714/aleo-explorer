@@ -552,25 +552,25 @@ async def transition_route(request: Request):
         if isinstance(input_, PublicTransitionInput):
             inputs.append({
                 "type": "Public",
-                "plaintext_hash": str(input_.plaintext_hash),
-                "plaintext": str(input_.plaintext.value),
+                "id": str(input_.plaintext_hash),
+                "value": str(input_.plaintext.value),
             })
         elif isinstance(input_, PrivateTransitionInput):
             inputs.append({
                 "type": "Private",
-                "ciphertext_hash": str(input_.ciphertext_hash),
-                "ciphertext": str(input_.ciphertext.value),
+                "id": str(input_.ciphertext_hash),
+                "value": str(input_.ciphertext.value),
             })
         elif isinstance(input_, RecordTransitionInput):
             inputs.append({
                 "type": "Record",
-                "serial_number": str(input_.serial_number),
+                "id": str(input_.serial_number),
                 "tag": str(input_.tag),
             })
         elif isinstance(input_, ExternalRecordTransitionInput):
             inputs.append({
                 "type": "External record",
-                "commitment": str(input_.input_commitment),
+                "id": str(input_.input_commitment),
             })
         else:
             raise HTTPException(status_code=550, detail="Not implemented")
@@ -582,19 +582,19 @@ async def transition_route(request: Request):
         if isinstance(output, PublicTransitionOutput):
             outputs.append({
                 "type": "Public",
-                "plaintext_hash": str(output.plaintext_hash),
-                "plaintext": str(output.plaintext.value),
+                "id": str(output.plaintext_hash),
+                "value": str(output.plaintext.value),
             })
         elif isinstance(output, PrivateTransitionOutput):
             outputs.append({
                 "type": "Private",
-                "ciphertext_hash": str(output.ciphertext_hash),
-                "ciphertext": str(output.ciphertext.value),
+                "id": str(output.ciphertext_hash),
+                "value": str(output.ciphertext.value),
             })
         elif isinstance(output, RecordTransitionOutput):
             output_data: dict[str, Any] = {
                 "type": "Record",
-                "commitment": str(output.commitment),
+                "id": str(output.commitment),
                 "checksum": str(output.checksum),
                 "record": str(output.record_ciphertext.value),
             }
@@ -626,7 +626,7 @@ async def transition_route(request: Request):
                 }
             outputs.append({
                 "type": "Future",
-                "future_hash": str(output.future_hash),
+                "id": str(output.future_hash),
                 "future": future,
             })
         else:
