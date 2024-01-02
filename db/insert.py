@@ -943,7 +943,6 @@ class DatabaseInsert(DatabaseBase):
         for ratification in ratifications:
             if isinstance(ratification, BlockRewardRatify):
                 committee_members = await DatabaseInsert._get_committee_mapping(redis_conn)
-                stakers = await DatabaseMapping.get_bonded_mapping(self)
                 mapping_id = Field.loads(cached_get_mapping_id("credits.aleo", "bonded"))
                 if mapping_id in global_mapping_cache:
                     data = global_mapping_cache[mapping_id]
