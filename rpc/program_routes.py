@@ -42,6 +42,9 @@ async def programs_route(request: Request):
         raise HTTPException(status_code=400, detail="Invalid page")
     programs = await db.get_programs(offset, offset + limit, no_helloworld=no_helloworld)
     builtin_programs = await db.get_builtin_programs()
+    for builtin_program in builtin_programs:
+        if builtin_program["program_id"] == "credits.aleo":
+            builtin_program["height"] = 0
 
     sync_info = await out_of_sync_check(db)
     ctx = {
@@ -177,6 +180,12 @@ async def program_route(request: Request):
             "deploy_fee": None,
             "owner": None,
             "signature": None,
+        })
+        if program_id == "credits.aleo":
+            ctx.update({
+                "height": 0,
+                "timestamp": 1696118400,
+                "deploy_fee": 0
         })
     return JSONResponse(ctx)
 
