@@ -410,7 +410,7 @@ LIMIT 30
         async with self.pool.connection() as conn:
             async with conn.cursor() as cur:
                 try:
-                    await cur.execute("SELECT COUNT(*) FROM address")
+                    await cur.execute("SELECT COUNT(*) FROM address WHERE public_credits > 0")
                     if (res := await cur.fetchone()) is None:
                         return 0
                     return res["count"]
