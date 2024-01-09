@@ -97,31 +97,69 @@ class DatabaseInsert(DatabaseBase):
     async def _insert_address_transition_detail(conn: psycopg.AsyncConnection[dict[str, Any]], address: str, transition_id: int):
         async with conn.cursor() as cur:
             await cur.execute(
-                    "SELECT t.transition_id, b.height, b.timestamp, t2.transaction_id, ct.type, "
-                    "t.function_name, t.program_id FROM transition t "
-                    "LEFT JOIN transaction_execute te on te.id = t.transaction_execute_id "
-                    "LEFT JOIN fee on fee.id = t.fee_id "
-                    "LEFT JOIN transaction t2 on t2.id = te.transaction_id OR t2.id = fee.transaction_id "
-                    "JOIN confirmed_transaction ct on ct.id = t2.confimed_transaction_id "
-                    "JOIN block b on b.id = ct.block_id "
+                    "SELECT transaction_execute_id, fee_id FROM transition t WHERE t.id = %s",(transition_id,)
+                )
+            if (res := await cur.fetchone()) is None:
+                raise RuntimeError("database inconsistent")
+            transaction_execute_id = res["transaction_execute_id"]
+            fee_id = res["fee_id"]
+            if transaction_execute_id:
+                await cur.execute(
+                    "SELECT t2.confimed_transaction_id FROM transition t "
+                    "JOIN transaction_execute te on te.id = t.transaction_execute_id "
+                    "JOIN transaction t2 on t2.id = te.transaction_id  "
+                    "WHERE t.id = %s",
+                    (transition_id,)
+                )
+            elif fee_id:
+                await cur.execute(
+                    "SELECT t2.confimed_transaction_id FROM transition t "
+                    "JOIN fee on fee.id = t.fee_id "
+                    "JOIN transaction t2 on t2.id = fee.transaction_id "
                     "WHERE t.id = %s",
                     (transition_id,)
                 )
             if (res := await cur.fetchone()) is None:
                 raise RuntimeError("database inconsistent")
-            transition_id = res["transition_id"]
-            transaction_id = res["transaction_id"]
-            height = res["height"]
-            timestamp = res["timestamp"]
-            transition_type = res["type"]
-            function_name = res["function_name"]
-            program_id = res["program_id"]
-            await cur.execute(
-                "INSERT INTO address_transition_detail "
-                "(address, transition_id, transaction_id, height, timestamp, program_id, function_name, type) "
-                "VALUES (%s, %s, %s, %s, %s, %s, %s, %s)",
-                (address, transition_id, transaction_id,  height, timestamp, program_id, function_name, transition_type)
-            )
+            confimed_transaction_id = res["confimed_transaction_id"]
+            if confimed_transaction_id:
+                if transaction_execute_id:
+                    await cur.execute(
+                        "SELECT t.transition_id, b.height, b.timestamp, t2.transaction_id, ct.type, "
+                        "t.function_name, t.program_id FROM transition t "
+                        "JOIN transaction_execute te on te.id = t.transaction_execute_id "
+                        "JOIN transaction t2 on t2.id = te.transaction_id "
+                        "JOIN confirmed_transaction ct on ct.id = t2.confimed_transaction_id "
+                        "JOIN block b on b.id = ct.block_id "
+                        "WHERE t.id = %s",
+                        (transition_id,)
+                    )
+                elif fee_id:
+                    await cur.execute(
+                        "SELECT t.transition_id, b.height, b.timestamp, t2.transaction_id, ct.type, "
+                        "t.function_name, t.program_id FROM transition t "
+                        "JOIN fee on fee.id = t.fee_id "
+                        "JOIN transaction t2 on t2.id = fee.transaction_id "
+                        "JOIN confirmed_transaction ct on ct.id = t2.confimed_transaction_id "
+                        "JOIN block b on b.id = ct.block_id "
+                        "WHERE t.id = %s",
+                        (transition_id,)
+                    )
+                if (res := await cur.fetchone()) is None:
+                    raise RuntimeError("database inconsistent")
+                transition_id = res["transition_id"]
+                transaction_id = res["transaction_id"]
+                height = res["height"]
+                timestamp = res["timestamp"]
+                transition_type = res["type"]
+                function_name = res["function_name"]
+                program_id = res["program_id"]
+                await cur.execute(
+                    "INSERT INTO address_transition_detail "
+                    "(address, transition_id, transaction_id, height, timestamp, program_id, function_name, type) "
+                    "VALUES (%s, %s, %s, %s, %s, %s, %s, %s)",
+                    (address, transition_id, transaction_id,  height, timestamp, program_id, function_name, transition_type)
+                )
 
     @staticmethod
     async def _insert_future(conn: psycopg.AsyncConnection[DictRow], future: Future,
@@ -1443,56 +1481,49 @@ class DatabaseInsert(DatabaseBase):
                                     #     raise RuntimeError("failed to insert row into database")
                                     # vertex_db_id = res["id"]
 
-                                    # if isinstance(certificate, BatchCertificate1):
-                                    #     for sig_index, (signature, timestamp) in enumerate(certificate.signatures):
-                                    #         await cur.execute(
-                                    #             "INSERT INTO dag_vertex_signature (vertex_id, signature, timestamp, index) "
-                                    #             "VALUES (%s, %s, %s, %s)",
-                                    #             (vertex_db_id, str(signature), timestamp, sig_index)
-                                    #         )
-                                    # elif isinstance(certificate, BatchCertificate2):
-                                    #     for sig_index, signature in enumerate(certificate.signatures):
-                                    #         await cur.execute(
-                                    #             "INSERT INTO dag_vertex_signature (vertex_id, signature, index) "
-                                    #             "VALUES (%s, %s, %s)",
-                                    #             (vertex_db_id, str(signature), sig_index)
-                                    #         )
-                                    #
-                                    # prev_cert_ids = certificate.batch_header.previous_certificate_ids
-                                    # await cur.execute(
-                                    #     "SELECT v.id, batch_certificate_id FROM dag_vertex v "
-                                    #     "JOIN UNNEST(%s::text[]) WITH ORDINALITY c(id, ord) ON v.batch_certificate_id = c.id "
-                                    #     "ORDER BY ord",
-                                    #     (list(map(str, prev_cert_ids)),)
-                                    # )
-                                    # res = await cur.fetchall()
-                                    # temp allow
-                                    # if len(res) != len(prev_cert_ids):
-                                    #     raise RuntimeError("dag referenced unknown previous certificate")
-                                    # prev_vertex_db_ids = {x["batch_certificate_id"]: x["id"] for x in res}
-                                    # adj_copy_data: list[tuple[int, int, int]] = []
-                                    # for prev_index, prev_cert_id in enumerate(prev_cert_ids):
-                                    #     if str(prev_cert_id) in prev_vertex_db_ids:
-                                    #         adj_copy_data.append((vertex_db_id, prev_vertex_db_ids[str(prev_cert_id)], prev_index))
-                                    # async with cur.copy("COPY dag_vertex_adjacency (vertex_id, previous_vertex_id, index) FROM STDIN") as copy:
-                                    #     for row in adj_copy_data:
-                                    #         await copy.write_row(row)
 
-                                    # tid_copy_data: list[tuple[int, str, int, Optional[str], Optional[str]]] = []
-                                    # for tid_index, transmission_id in enumerate(certificate.batch_header.transmission_ids):
-                                    #     if isinstance(transmission_id, SolutionTransmissionID):
-                                    #         tid_copy_data.append((vertex_db_id, transmission_id.type.name, tid_index, str(transmission_id.id), None))
-                                    #         dag_transmission_ids[0][str(transmission_id.id)] = vertex_db_id
-                                    #     elif isinstance(transmission_id, TransactionTransmissionID):
-                                    #         tid_copy_data.append((vertex_db_id, transmission_id.type.name, tid_index, None, str(transmission_id.id)))
-                                    #         dag_transmission_ids[1][str(transmission_id.id)] = vertex_db_id
-                                    #     elif isinstance(transmission_id, RatificationTransmissionID):
-                                    #         tid_copy_data.append((vertex_db_id, transmission_id.type.name, tid_index, None, None))
-                                    #     else:
-                                    #         raise NotImplementedError
-                                    # async with cur.copy("COPY dag_vertex_transmission_id (vertex_id, type, index, commitment, transaction_id) FROM STDIN") as copy:
-                                    #     for row in tid_copy_data:
-                                    #         await copy.write_row(row)
+                                        for sig_index, signature in enumerate(certificate.signatures):
+                                            await cur.execute(
+                                                "INSERT INTO dag_vertex_signature (vertex_id, signature, index) "
+                                                "VALUES (%s, %s, %s)",
+                                                (vertex_db_id, str(signature), sig_index)
+                                            )
+
+                                    prev_cert_ids = certificate.batch_header.previous_certificate_ids
+                                    await cur.execute(
+                                        "SELECT v.id, batch_certificate_id FROM dag_vertex v "
+                                        "JOIN UNNEST(%s::text[]) WITH ORDINALITY c(id, ord) ON v.batch_certificate_id = c.id "
+                                        "ORDER BY ord",
+                                        (list(map(str, prev_cert_ids)),)
+                                    )
+                                    res = await cur.fetchall()
+                                    # temp allow
+                                    if len(res) != len(prev_cert_ids):
+                                        raise RuntimeError("dag referenced unknown previous certificate")
+                                    prev_vertex_db_ids = {x["batch_certificate_id"]: x["id"] for x in res}
+                                    adj_copy_data: list[tuple[int, int, int]] = []
+                                    for prev_index, prev_cert_id in enumerate(prev_cert_ids):
+                                        if str(prev_cert_id) in prev_vertex_db_ids:
+                                            adj_copy_data.append((vertex_db_id, prev_vertex_db_ids[str(prev_cert_id)], prev_index))
+                                    async with cur.copy("COPY dag_vertex_adjacency (vertex_id, previous_vertex_id, index) FROM STDIN") as copy:
+                                        for row in adj_copy_data:
+                                            await copy.write_row(row)
+
+                                    tid_copy_data: list[tuple[int, str, int, Optional[str], Optional[str]]] = []
+                                    for tid_index, transmission_id in enumerate(certificate.batch_header.transmission_ids):
+                                        if isinstance(transmission_id, SolutionTransmissionID):
+                                            tid_copy_data.append((vertex_db_id, transmission_id.type.name, tid_index, str(transmission_id.id), None))
+                                            # dag_transmission_ids[0][str(transmission_id.id)] = vertex_db_id
+                                        elif isinstance(transmission_id, TransactionTransmissionID):
+                                            tid_copy_data.append((vertex_db_id, transmission_id.type.name, tid_index, None, str(transmission_id.id)))
+                                            # dag_transmission_ids[1][str(transmission_id.id)] = vertex_db_id
+                                        elif isinstance(transmission_id, RatificationTransmissionID):
+                                            tid_copy_data.append((vertex_db_id, transmission_id.type.name, tid_index, None, None))
+                                        else:
+                                            raise NotImplementedError
+                                    async with cur.copy("COPY dag_vertex_transmission_id (vertex_id, type, index, commitment, transaction_id) FROM STDIN") as copy:
+                                        for row in tid_copy_data:
+                                            await copy.write_row(row)
                         else:
                             raise NotImplementedError
                         if subdag_copy_data:
