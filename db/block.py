@@ -868,41 +868,40 @@ class DatabaseBlock(DatabaseBase):
                 dag_vertices = await cur.fetchall()
                 certificates: list[BatchCertificate] = []
                 for dag_vertex in dag_vertices:
-                    # await cur.execute(
-                    #     "SELECT * FROM dag_vertex_signature WHERE vertex_id = %s ORDER BY index",
-                    #     (dag_vertex["id"],)
-                    # )
-                    # dag_vertex_signatures = await cur.fetchall()
+                    await cur.execute(
+                        "SELECT * FROM dag_vertex_signature WHERE vertex_id = %s ORDER BY index",
+                        (dag_vertex["id"],)
+                    )
+                    dag_vertex_signatures = await cur.fetchall()
 
                     if dag_vertex["batch_certificate_id"] is not None:
                         signatures: list[Tuple[Signature, i64]] = []
-                        # for signature in dag_vertex_signatures:
-                        #     signatures.append(
-                        #         Tuple[Signature, i64]((
-                        #             Signature.loads(signature["signature"]),
-                        #             i64(signature["timestamp"]),
-                        #         ))
-                        #     )
+                        for signature in dag_vertex_signatures:
+                            signatures.append(
+                                Tuple[Signature, i64]((
+                                    Signature.loads(signature["signature"]),i64(signature["timestamp"]),
+                                )) # type: ignore
+                            )
                     else:
                         signatures: list[Signature] = []
-                        # for signature in dag_vertex_signatures:
-                        #     signatures.append(Signature.loads(signature["signature"]))
+                        for signature in dag_vertex_signatures:
+                            signatures.append(Signature.loads(signature["signature"]))
 
-                    # await cur.execute(
-                    #     "SELECT previous_vertex_id FROM dag_vertex_adjacency WHERE vertex_id = %s ORDER BY index",
-                    #     (dag_vertex["id"],)
-                    # )
-                    # previous_ids = [x["previous_vertex_id"] for x in await cur.fetchall()]
+                    await cur.execute(
+                        "SELECT previous_vertex_id FROM dag_vertex_adjacency WHERE vertex_id = %s ORDER BY index",
+                        (dag_vertex["id"],)
+                    )
+                    previous_ids = [x["previous_vertex_id"] for x in await cur.fetchall()]
 
                     # TODO: use batch id after next reset
-                    # await cur.execute(
-                    #     "SELECT batch_certificate_id FROM dag_vertex v "
-                    #     "JOIN UNNEST(%s) WITH ORDINALITY q(id, ord) ON q.id = v.id "
-                    #     "ORDER BY ord",
-                    #     (previous_ids,)
-                    # )
-                    # previous_cert_ids = [x["batch_certificate_id"] for x in await cur.fetchall()]
-                    previous_cert_ids = []
+                    await cur.execute(
+                        "SELECT batch_certificate_id FROM dag_vertex v "
+                        "JOIN UNNEST(%s) WITH ORDINALITY q(id, ord) ON q.id = v.id "
+                        "ORDER BY ord",
+                        (previous_ids,)
+                    )
+                    previous_cert_ids = [x["batch_certificate_id"] for x in await cur.fetchall()]
+                    # previous_cert_ids = []
 
                     await cur.execute(
                         "SELECT * FROM dag_vertex_transmission_id WHERE vertex_id = %s ORDER BY index",
