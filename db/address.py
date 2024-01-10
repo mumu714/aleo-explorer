@@ -390,7 +390,7 @@ LIMIT 30
             async with conn.cursor() as cur:
                 try:
                     await cur.execute(
-                            "SELECT address, public_credits FROM address  "
+                            "SELECT address, public_credits FROM address WHERE public_credits > 0 "
                             "ORDER BY public_credits DESC "
                             "LIMIT %s OFFSET %s",
                             (end - start, start)
