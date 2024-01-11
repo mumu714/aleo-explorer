@@ -218,3 +218,26 @@ class DatabaseTransaction(DatabaseBase):
                 except Exception as e:
                     await self.message_callback(ExplorerMessage(ExplorerMessage.Type.DatabaseError, e))
                     raise
+
+    async def get_transaction_by_function(self, function: str, program_id: str) -> list[dict[str, Any]]:
+        async with self.pool.connection() as conn:
+            async with conn.cursor() as cur:
+                try:
+                    await cur.execute(
+                        "SELECT t2.transaction_id, b.height FROM transition t "
+                        "JOIN transaction_execute te on te.id = t.transaction_execute_id "
+                        "JOIN transaction t2 on t2.id = te.transaction_id "
+                        "JOIN confirmed_transaction ct on ct.id = t2.confimed_transaction_id "
+                        "JOIN block b on b.id = ct.block_id "
+                        "WHERE t.function_name = %s AND t.program_id = %s ORDER BY b.height DESC LIMIT 10",
+                        (function, program_id)
+                    )
+                    def transform(x: dict[str, Any]):
+                        return {
+                            "transaction_id": x["transaction_id"],
+                            "height": x["height"]
+                        }
+                    return list(map(lambda x: transform(x), await cur.fetchall()))
+                except Exception as e:
+                    await self.message_callback(ExplorerMessage(ExplorerMessage.Type.DatabaseError, e))
+                    raise
