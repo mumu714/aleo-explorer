@@ -63,8 +63,16 @@ async def index_route(request: Request):
     network_speed = await db.get_network_speed(900)
     sync_info = await out_of_sync_check(db)
     latest_block = await db.get_latest_block()
+    validators_count = await db.get_validators_size()
+    provers_count = await db.get_leaderboard_size()
+    delegators = await db.get_bonded_mapping()
+    total_stake = await db.get_total_stake()
     ctx = {
         "latest_block": format_block(latest_block),
+        "validators_count": validators_count,
+        "provers_count": provers_count,
+        "delegators_count": len(delegators) - validators_count,
+        "total_stake": total_stake,
         "recent_blocks": [format_number(recent_block) for recent_block in recent_blocks],
         "network_speed": str(network_speed),
         "sync_info": sync_info,
@@ -82,6 +90,7 @@ routes = [
     Route("/block_solutions", block_solution_route),
     Route("/transaction", transaction_route),
     Route("/transactions", transactions_route),
+    Route("/estimate_fee", estimate_fee_route),
     Route("/transition", transition_route),
     Route("/transitions", transitions_route),
     Route("/search", search_route),
@@ -98,6 +107,7 @@ routes = [
     # Proving
     Route("/calc", calc_route),
     Route("/validators", validators_route),
+    Route("/validator_apr", validator_apr_route),
     Route("/validator/bonds", validator_bonds_route),
     Route("/validator/trending", validator_trending_route),
     Route("/leaderboard", leaderboard_route),

@@ -866,7 +866,8 @@ async def coinbase_route(request: Request):
     for coinbase in coinbases:
         data.append({
             "height": coinbase["height"],
-            "reward": float(coinbase["reward"] / 2)
+            "timestamp": coinbase["timestamp"],
+            "reward": float(coinbase["reward"] // 2)
         })
     ctx = {
         "coinbase": data,

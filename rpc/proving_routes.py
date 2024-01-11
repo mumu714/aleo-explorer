@@ -46,12 +46,17 @@ async def validators_route(request: Request):
     committee, validators = await db.get_validators(offset, offset + limit)
     data: list[dict[str, Any]] = []
     for validator in validators:
-        total_rewards, _ = await db.get_leaderboard_rewards_by_address(validator["address"])
         address_type = await get_address_type(db, validator["address"])
+        stake_reward = await db.get_address_stake_reward(validator["address"])
+        delegate_reward = await db.get_address_delegate_reward(validator["address"])
+        if stake_reward is None:
+            stake_reward = 0
+        if delegate_reward is None:
+            delegate_reward = 0
         data.append({
             "address": validator["address"],
             "address_type": address_type,
-            "total_reward": int(total_rewards),
+            "staking_reward": stake_reward + delegate_reward,
             "stake": int(validator["stake"]),
             "is_open": validator["is_open"]
         })
@@ -88,6 +93,14 @@ async def credits_route(request: Request):
     for line in credits_leaderboard:
         total_rewards, _ = await db.get_leaderboard_rewards_by_address(line["address"])
         address_type = await get_address_type(db, line["address"])
+        if address_type == "Validator":
+            stake_reward = await db.get_address_stake_reward(line["address"])
+            delegate_reward = await db.get_address_delegate_reward(line["address"])
+            if stake_reward is None:
+                stake_reward = 0
+            if delegate_reward is None:
+                delegate_reward = 0
+            total_rewards += stake_reward + delegate_reward
         data.append({
             "address": line["address"],
             "address_type": address_type,
@@ -259,14 +272,12 @@ async def power_route(request: Request):
         raise HTTPException(status_code=400, detail="Invalid page")
     for address in address_list:
         cur_solution = [solution for solution in solutions if solution["address"] == address]
-        total_rewards, _ = await db.get_leaderboard_rewards_by_address(address)
         address_type = await get_address_type(db, address)
         all_data.append({
             "address": address,
             "address_type": address_type,
             "count": len(cur_solution),
             "power": float(sum(solution["pre_proof_target"] for solution in cur_solution) / interval[type]),
-            "total_reward": int(total_rewards)
         })
     leaderboard_data = sorted(all_data, key=lambda e: e['power'], reverse=True)
     if offset + limit > len(leaderboard_data):
@@ -973,6 +984,51 @@ async def validator_bonds_route(request: Request):
         "delegators": delegators,
         "delegator_count": delegator_count,
         "sync_info": sync_info,
+    }
+    return JSONResponse(ctx)
+
+
+async def estimate_fee_route(request: Request):
+    db: Database = request.app.state.db
+    function = request.query_params.get("function")
+    program_id = request.query_params.get("program")
+    if function is None:
+        raise HTTPException(status_code=400, detail="Missing function")
+    if program_id is None:
+        raise HTTPException(status_code=400, detail="Missing program id")
+    transactions = await db.get_transaction_by_function(function, program_id)
+    data: list[dict[str, Any]] = []
+    estimate_fee = 0
+    for transaction in transactions:
+        transaction_id = transaction["transaction_id"]
+        confirmed_transaction = await db.get_confirmed_transaction(transaction_id)
+        storage_cost, namespace_cost, finalize_costs, priority_fee, burnt = await confirmed_transaction.get_fee_breakdown(db)
+        gas_fee = storage_cost + namespace_cost + sum(finalize_costs) + priority_fee + burnt
+        estimate_fee += gas_fee
+        data.append({
+            "height": transaction["height"],
+            "transaction_id": transaction_id,
+            "gas_fee": gas_fee,
+        })
+    ctx = {
+        "function": function,
+        "estimate_fee": estimate_fee // len(transactions),
+        "fees": data
+    }
+    return JSONResponse(ctx)
+
+
+async def validator_apr_route(request: Request):
+    db: Database = request.app.state.db
+    address = request.query_params.get("a")
+    if address is None:
+        raise HTTPException(status_code=400, detail="Missing address")
+    now = int(time.time())
+    validator_trend = await db.get_validator_trend(address, now - 86400)
+    dpr = sum((trend["stake_reward"]+trend["delegate_reward"])/trend["committee_stake"] for trend in validator_trend)
+    ctx = {
+        "daily_percentage_rate": dpr,
+        "validator": address,
     }
     return JSONResponse(ctx)
 
