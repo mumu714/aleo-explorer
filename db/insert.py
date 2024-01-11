@@ -1540,14 +1540,14 @@ class DatabaseInsert(DatabaseBase):
                     await self.message_callback(ExplorerMessage(ExplorerMessage.Type.DatabaseError, e))
                     raise
 
-    async def _save_coinbase(self, height: int, reward: float):
+    async def _save_coinbase(self, timestamp: int, height: int, reward: float):
         async with self.pool.connection() as conn:
             async with conn.cursor() as cur:
                 try:
                     await cur.execute(
-                        "INSERT INTO coinbase (height, reward) "
+                        "INSERT INTO coinbase (timestamp, height, reward) "
                         "VALUES (%s, %s) ON CONFLICT (height) DO NOTHING",
-                        (height, reward)
+                        (timestamp, height, reward)
                     )
                 except Exception as e:
                     await self.message_callback(ExplorerMessage(ExplorerMessage.Type.DatabaseError, e))
@@ -1557,18 +1557,19 @@ class DatabaseInsert(DatabaseBase):
         async with self.pool.connection() as conn:
             async with conn.cursor() as cur:
                 try:
-                    await cur.execute("SELECT * FROM block ORDER BY height")
-                    blocks = await cur.fetchall()
-                    sum = 0
-                    count = 0
-                    for block in blocks:
-                        if count == 5760:
-                            await self._save_coinbase(block["height"], sum / count)
-                            sum = 0
-                            count = 0
-                        count += 1
-                        if block["coinbase_reward"] is not None:
-                            sum += block["coinbase_reward"]
+                    today_zero_time = int(time.time()) - int(time.time() - time.timezone) % 86400
+                    previous_timestamp = today_zero_time - 86400 * 30
+                    trending_time = today_zero_time
+                    await cur.execute("SELECT * FROM block WHERE timestamp > %s ORDER BY height DESC", (previous_timestamp,))
+                    all_blocks = await cur.fetchall()
+                    if len(all_blocks) > 0:
+                        cur_blocks = [blocks for blocks in all_blocks if blocks["timestamp"] >= trending_time]
+                        for _ in range(1, 30):
+                            coinbase_rewards = sum(block["coinbase_reward"] for block in cur_blocks)
+                            await self._save_coinbase(trending_time, cur_blocks[0]["height"], coinbase_rewards / len(cur_blocks))
+                            cur_blocks = [blocks for blocks in all_blocks if
+                                            trending_time > blocks["timestamp"] >= trending_time - 86400 * 1]
+                            trending_time = trending_time - 86400 * 1
                 except Exception as e:
                     await self.message_callback(ExplorerMessage(ExplorerMessage.Type.DatabaseError, e))
                     raise

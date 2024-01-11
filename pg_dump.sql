@@ -165,6 +165,7 @@ CREATE TABLE explorer.hashrate (
 --
 
 CREATE TABLE explorer.coinbase (
+    "timestamp" bigint NOT NULL,
     height bigint NOT NULL,
     reward numeric(40,0) NOT NULL
 );
