@@ -1027,7 +1027,7 @@ async def validator_apr_route(request: Request):
     validator_trend = await db.get_validator_trend(address, now - 86400)
     dpr = sum((trend["stake_reward"]+trend["delegate_reward"])/trend["committee_stake"] for trend in validator_trend)
     ctx = {
-        "daily_percentage_rate": dpr,
+        "daily_percentage_rate": float(dpr),
         "validator": address,
     }
     return JSONResponse(ctx)
