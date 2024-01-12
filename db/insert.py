@@ -1247,11 +1247,22 @@ class DatabaseInsert(DatabaseBase):
                                         "ORDER BY ord",
                                         (list(map(str, prev_cert_ids)),)
                                     )
-                                    res = await cur.fetchall()
+                                    res1 = await cur.fetchall()
+                                    res2: list[Any] = []
                                     # temp allow
-                                    if len(res) != len(prev_cert_ids):
-                                        raise RuntimeError("dag referenced unknown previous certificate")
-                                    prev_vertex_db_ids = {x["batch_certificate_id"]: x["id"] for x in res}
+                                    if len(res1) != len(prev_cert_ids):
+                                        await cur.execute(
+                                            "SELECT v.id, batch_id FROM dag_vertex v "
+                                            "JOIN UNNEST(%s::text[]) WITH ORDINALITY c(id, ord) ON v.batch_id = c.id "
+                                            "ORDER BY ord",
+                                            (list(map(str, prev_cert_ids)),)
+                                        )
+                                        res2 = await cur.fetchall()
+                                        if len(res1) + len(res2) != len(prev_cert_ids):
+                                            raise RuntimeError("dag referenced unknown previous certificate")
+                                    prev_vertex_db_ids = {x["batch_certificate_id"]: x["id"] for x in res1}
+                                    if res2:
+                                        prev_vertex_db_ids.update({x["batch_id"]: x["id"] for x in res2})
                                     adj_copy_data: list[tuple[int, int, int]] = []
                                     for prev_index, prev_cert_id in enumerate(prev_cert_ids):
                                         if str(prev_cert_id) in prev_vertex_db_ids:
