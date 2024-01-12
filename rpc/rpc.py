@@ -90,7 +90,6 @@ routes = [
     Route("/block_solutions", block_solution_route),
     Route("/transaction", transaction_route),
     Route("/transactions", transactions_route),
-    Route("/estimate_fee", estimate_fee_route),
     Route("/transition", transition_route),
     Route("/transitions", transitions_route),
     Route("/search", search_route),
@@ -107,6 +106,7 @@ routes = [
     # Proving
     Route("/calc", calc_route),
     Route("/validators", validators_route),
+    Route("/estimate_fee", estimate_fee_route),
     Route("/validator_apr", validator_apr_route),
     Route("/validator/bonds", validator_bonds_route),
     Route("/validator/trending", validator_trending_route),

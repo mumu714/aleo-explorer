@@ -1546,7 +1546,7 @@ class DatabaseInsert(DatabaseBase):
                 try:
                     await cur.execute(
                         "INSERT INTO coinbase (timestamp, height, reward) "
-                        "VALUES (%s, %s) ON CONFLICT (height) DO NOTHING",
+                        "VALUES (%s, %s, %s) ON CONFLICT (height) DO NOTHING",
                         (timestamp, height, reward)
                     )
                 except Exception as e:
@@ -1563,13 +1563,12 @@ class DatabaseInsert(DatabaseBase):
                     await cur.execute("SELECT * FROM block WHERE timestamp > %s ORDER BY height DESC", (previous_timestamp,))
                     all_blocks = await cur.fetchall()
                     if len(all_blocks) > 0:
-                        cur_blocks = [blocks for blocks in all_blocks if blocks["timestamp"] >= trending_time]
                         for _ in range(1, 30):
-                            coinbase_rewards = sum(block["coinbase_reward"] for block in cur_blocks)
-                            await self._save_coinbase(trending_time, cur_blocks[0]["height"], coinbase_rewards / len(cur_blocks))
                             cur_blocks = [blocks for blocks in all_blocks if
                                             trending_time > blocks["timestamp"] >= trending_time - 86400 * 1]
                             trending_time = trending_time - 86400 * 1
+                            coinbase_rewards = sum(block["coinbase_reward"] for block in cur_blocks)
+                            await self._save_coinbase(trending_time, cur_blocks[0]["height"], coinbase_rewards)
                 except Exception as e:
                     await self.message_callback(ExplorerMessage(ExplorerMessage.Type.DatabaseError, e))
                     raise
