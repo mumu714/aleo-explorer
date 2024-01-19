@@ -1240,36 +1240,36 @@ class DatabaseInsert(DatabaseBase):
                                                 (vertex_db_id, str(signature), sig_index)
                                             )
 
-                                    prev_cert_ids = certificate.batch_header.previous_certificate_ids
-                                    await cur.execute(
-                                        "SELECT v.id, batch_certificate_id FROM dag_vertex v "
-                                        "JOIN UNNEST(%s::text[]) WITH ORDINALITY c(id, ord) ON v.batch_certificate_id = c.id "
-                                        "ORDER BY ord",
-                                        (list(map(str, prev_cert_ids)),)
-                                    )
-                                    res1 = await cur.fetchall()
-                                    res2: list[Any] = []
-                                    # temp allow
-                                    if len(res1) != len(prev_cert_ids):
-                                        await cur.execute(
-                                            "SELECT v.id, batch_id FROM dag_vertex v "
-                                            "JOIN UNNEST(%s::text[]) WITH ORDINALITY c(id, ord) ON v.batch_id = c.id "
-                                            "ORDER BY ord",
-                                            (list(map(str, prev_cert_ids)),)
-                                        )
-                                        res2 = await cur.fetchall()
-                                        if len(res1) + len(res2) != len(prev_cert_ids):
-                                            raise RuntimeError("dag referenced unknown previous certificate")
-                                    prev_vertex_db_ids = {x["batch_certificate_id"]: x["id"] for x in res1}
-                                    if res2:
-                                        prev_vertex_db_ids.update({x["batch_id"]: x["id"] for x in res2})
-                                    adj_copy_data: list[tuple[int, int, int]] = []
-                                    for prev_index, prev_cert_id in enumerate(prev_cert_ids):
-                                        if str(prev_cert_id) in prev_vertex_db_ids:
-                                            adj_copy_data.append((vertex_db_id, prev_vertex_db_ids[str(prev_cert_id)], prev_index))
-                                    async with cur.copy("COPY dag_vertex_adjacency (vertex_id, previous_vertex_id, index) FROM STDIN") as copy:
-                                        for row in adj_copy_data:
-                                            await copy.write_row(row)
+                                    # prev_cert_ids = certificate.batch_header.previous_certificate_ids
+                                    # await cur.execute(
+                                    #     "SELECT v.id, batch_certificate_id FROM dag_vertex v "
+                                    #     "JOIN UNNEST(%s::text[]) WITH ORDINALITY c(id, ord) ON v.batch_certificate_id = c.id "
+                                    #     "ORDER BY ord",
+                                    #     (list(map(str, prev_cert_ids)),)
+                                    # )
+                                    # res1 = await cur.fetchall()
+                                    # res2: list[Any] = []
+                                    # # temp allow
+                                    # if len(res1) != len(prev_cert_ids):
+                                    #     await cur.execute(
+                                    #         "SELECT v.id, batch_id FROM dag_vertex v "
+                                    #         "JOIN UNNEST(%s::text[]) WITH ORDINALITY c(id, ord) ON v.batch_id = c.id "
+                                    #         "ORDER BY ord",
+                                    #         (list(map(str, prev_cert_ids)),)
+                                    #     )
+                                    #     res2 = await cur.fetchall()
+                                    #     if len(res1) + len(res2) != len(prev_cert_ids):
+                                    #         raise RuntimeError("dag referenced unknown previous certificate")
+                                    # prev_vertex_db_ids = {x["batch_certificate_id"]: x["id"] for x in res1}
+                                    # if res2:
+                                    #     prev_vertex_db_ids.update({x["batch_id"]: x["id"] for x in res2})
+                                    # adj_copy_data: list[tuple[int, int, int]] = []
+                                    # for prev_index, prev_cert_id in enumerate(prev_cert_ids):
+                                    #     if str(prev_cert_id) in prev_vertex_db_ids:
+                                    #         adj_copy_data.append((vertex_db_id, prev_vertex_db_ids[str(prev_cert_id)], prev_index))
+                                    # async with cur.copy("COPY dag_vertex_adjacency (vertex_id, previous_vertex_id, index) FROM STDIN") as copy:
+                                    #     for row in adj_copy_data:
+                                    #         await copy.write_row(row)
 
                                     tid_copy_data: list[tuple[int, str, int, Optional[str], Optional[str]]] = []
                                     for tid_index, transmission_id in enumerate(certificate.batch_header.transmission_ids):
@@ -1580,6 +1580,27 @@ class DatabaseInsert(DatabaseBase):
                             trending_time = trending_time - 86400 * 1
                             coinbase_rewards = sum(block["coinbase_reward"] for block in cur_blocks)
                             await self._save_coinbase(trending_time, cur_blocks[0]["height"], coinbase_rewards)
+                except Exception as e:
+                    await self.message_callback(ExplorerMessage(ExplorerMessage.Type.DatabaseError, e))
+                    raise
+
+    async def insert_address_favorite(self, address: str, favorite_address: str, label: str) -> dict[str, Any]: 
+        async with self.pool.connection() as conn:
+            async with conn.cursor() as cur:
+                try:
+                    await cur.execute("SELECT favorite FROM address WHERE address = %s", (address,))
+                    row = await cur.fetchone()
+                    favorite: dict[str, Any] = {}
+                    if row is not None:
+                        favorite = row["favorite"]
+                    if favorite_address not in favorite:
+                        favorite[favorite_address] = label
+                        await cur.execute(
+                            "INSERT INTO address (address, favorite) VALUES (%s, %s) "
+                            "ON CONFLICT (address) DO UPDATE SET favorite = %s",
+                            (address, Jsonb(favorite), Jsonb(favorite))
+                        )
+                    return favorite
                 except Exception as e:
                     await self.message_callback(ExplorerMessage(ExplorerMessage.Type.DatabaseError, e))
                     raise

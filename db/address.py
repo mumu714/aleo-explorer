@@ -431,7 +431,7 @@ LIMIT 30
                     await self.message_callback(ExplorerMessage(ExplorerMessage.Type.DatabaseError, e))
                     raise
 
-    async def get_address_info(self, address: str) -> dict[str, Any]:
+    async def get_address_info(self, address: str) -> Optional[dict[str, Any]]:
         async with self.pool.connection() as conn:
             async with conn.cursor() as cur:
                 try:
@@ -440,17 +440,12 @@ LIMIT 30
                     )
                     row = await cur.fetchone()
                     if row is None:
-                        execution_transactions = 0
-                        fee_transactions = 0
-                        functions = []
-                    else:
-                        execution_transactions = row['execution_ts_num']
-                        fee_transactions = row['fee_ts_num']
-                        functions = row['functions']
+                        return None
                     return {
-                        'execution_transactions': execution_transactions,
-                        'fee_transactions': fee_transactions,
-                        'functions': functions,
+                        'execution_transactions': row['execution_ts_num'],
+                        'fee_transactions': row['fee_ts_num'],
+                        'functions': row['functions'],
+                        'favorites': row['favorite']
                     }
                 except Exception as e:
                     await self.message_callback(ExplorerMessage(ExplorerMessage.Type.DatabaseError, e))
