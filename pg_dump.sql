@@ -338,7 +338,8 @@ CREATE TABLE explorer.address (
     public_credits numeric(40,0) DEFAULT 0 NOT NULL,
     functions text[],
     execution_ts_num integer DEFAULT 0 NOT NULL,
-    fee_ts_num integer DEFAULT 0 NOT NULL
+    fee_ts_num integer DEFAULT 0 NOT NULL,
+    favorite jsonb
 );
 
 

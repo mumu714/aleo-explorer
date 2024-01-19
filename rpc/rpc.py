@@ -130,6 +130,7 @@ routes = [
     Route("/v{version:int}/mapping/list_program_mappings/{program_id}", mapping_list_route),
     Route("/v{version:int}/mapping/list_program_mapping_values/{program_id}/{mapping}", mapping_value_list_route),
     Route("/v{version:int}/preview_finalize_execution", preview_finalize_route, methods=["POST"]),
+    Route("/favorites", favorites_route, methods=["POST"]),
 ]
 
 async def startup():
