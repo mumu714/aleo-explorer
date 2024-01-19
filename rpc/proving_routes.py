@@ -332,6 +332,7 @@ async def address_route(request: Request):
     transfer_in = await db.get_address_transfer_in(address)
     transfer_out = await db.get_address_transfer_out(address)
     fee = await db.get_address_total_fee(address)
+    address_info = await db.get_address_info(address)
 
     if (len(solutions) == 0
         and len(programs) == 0
@@ -344,6 +345,7 @@ async def address_route(request: Request):
         and transfer_in is None
         and transfer_out is None
         and fee is None
+        and address_info is None
     ):
         return JSONResponse({})
     now = int(time.time())
@@ -369,7 +371,6 @@ async def address_route(request: Request):
         total_incentive = 0
         speed = 0
         interval = 0
-    address_info = await db.get_address_info(address)
     program_count = await db.get_program_count_by_address(address)
     interval_text = {
         0: "never",
@@ -476,6 +477,15 @@ async def address_route(request: Request):
         address_type = "Prover"
     elif program_count > 0:
         address_type = "Developer"
+    if address_info is None:
+        functions: list[str] = []
+        favorites: dict[str, Any] = {}
+        address_info = {
+            "execution_transactions": 0,
+            "fee_transactions": 0,
+            "functions": functions,
+            "favorites": favorites
+        }
 
     sync_info = await out_of_sync_check(db)
     network_1hour_speed = await db.get_network_speed(3600)
@@ -496,6 +506,7 @@ async def address_route(request: Request):
         "total_execution_transactions": address_info["execution_transactions"],
         "total_fee_transactions": address_info["fee_transactions"],
         "function_names": address_info["functions"],
+        "favorites": address_info["favorites"],
         "speed": float(speed),
         "timespan": interval_text[interval],
         "public_credits": public_balance,
@@ -998,13 +1009,13 @@ async def estimate_fee_route(request: Request):
         raise HTTPException(status_code=400, detail="Missing program id")
     transactions = await db.get_transaction_by_function(function, program_id)
     data: list[dict[str, Any]] = []
-    estimate_fee = 0
+    gas_list: list[int] = []
     for transaction in transactions:
         transaction_id = transaction["transaction_id"]
         confirmed_transaction = await db.get_confirmed_transaction(transaction_id)
         storage_cost, namespace_cost, finalize_costs, priority_fee, burnt = await confirmed_transaction.get_fee_breakdown(db)
         gas_fee = storage_cost + namespace_cost + sum(finalize_costs) + priority_fee + burnt
-        estimate_fee += gas_fee
+        gas_list.append(gas_fee)
         data.append({
             "height": transaction["height"],
             "transaction_id": transaction_id,
@@ -1012,7 +1023,7 @@ async def estimate_fee_route(request: Request):
         })
     ctx = {
         "function": function,
-        "estimate_fee": estimate_fee // len(transactions),
+        "estimate_fee": max(set(gas_list), key=gas_list.count),
         "fees": data
     }
     return JSONResponse(ctx)
@@ -1063,4 +1074,24 @@ async def biggest_miners_route(request: Request):
         "address_15min_hashrate": data
     }
 
+    return JSONResponse(ctx)
+
+
+async def favorites_route(request: Request):
+    db: Database = request.app.state.db
+    json = await request.json()
+    address = json.get("address")
+    favorite = json.get("favorite")
+    label = json.get("label")
+    if not address:
+        return JSONResponse({"error": "Missing address"}, status_code=400)
+    if not favorite:
+        return JSONResponse({"error": "Missing favorite address"}, status_code=400)
+    if label is None:
+        label = ""
+    favorites = await db.insert_address_favorite(address, favorite, label)
+    ctx = {
+        "address": address,
+        "favorites": favorites
+    }
     return JSONResponse(ctx)
