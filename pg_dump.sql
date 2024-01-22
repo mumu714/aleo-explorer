@@ -339,7 +339,7 @@ CREATE TABLE explorer.address (
     functions text[],
     execution_ts_num integer DEFAULT 0 NOT NULL,
     fee_ts_num integer DEFAULT 0 NOT NULL,
-    favorite jsonb
+    favorite jsonb DEFAULT '{}'::jsonb NOT NULL
 );
 
 
