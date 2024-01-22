@@ -1077,7 +1077,7 @@ async def biggest_miners_route(request: Request):
     return JSONResponse(ctx)
 
 
-async def favorites_route(request: Request):
+async def favorites_update_route(request: Request):
     db: Database = request.app.state.db
     json = await request.json()
     address = json.get("address")
@@ -1089,7 +1089,7 @@ async def favorites_route(request: Request):
         return JSONResponse({"error": "Missing favorite address"}, status_code=400)
     if label is None:
         label = ""
-    favorites = await db.insert_address_favorite(address, favorite, label)
+    favorites = await db.update_address_favorite(address, favorite, label)
     ctx = {
         "address": address,
         "favorites": favorites

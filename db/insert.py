@@ -1584,7 +1584,7 @@ class DatabaseInsert(DatabaseBase):
                     await self.message_callback(ExplorerMessage(ExplorerMessage.Type.DatabaseError, e))
                     raise
 
-    async def insert_address_favorite(self, address: str, favorite_address: str, label: str) -> dict[str, Any]: 
+    async def update_address_favorite(self, address: str, favorite_address: str, label: str) -> dict[str, Any]: 
         async with self.pool.connection() as conn:
             async with conn.cursor() as cur:
                 try:
@@ -1595,11 +1595,13 @@ class DatabaseInsert(DatabaseBase):
                         favorite = row["favorite"]
                     if favorite_address not in favorite:
                         favorite[favorite_address] = label
-                        await cur.execute(
-                            "INSERT INTO address (address, favorite) VALUES (%s, %s) "
-                            "ON CONFLICT (address) DO UPDATE SET favorite = %s",
-                            (address, Jsonb(favorite), Jsonb(favorite))
-                        )
+                    else:
+                        favorite.pop(favorite_address)
+                    await cur.execute(
+                        "INSERT INTO address (address, favorite) VALUES (%s, %s) "
+                        "ON CONFLICT (address) DO UPDATE SET favorite = %s",
+                        (address, Jsonb(favorite), Jsonb(favorite))
+                    )
                     return favorite
                 except Exception as e:
                     await self.message_callback(ExplorerMessage(ExplorerMessage.Type.DatabaseError, e))
