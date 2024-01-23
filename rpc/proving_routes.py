@@ -197,7 +197,7 @@ async def reward_route(request: Request):
             data.append({
                 "address": line["address"],
                 "address_type": address_type,
-                "rewards": int(line["total_reward"]),
+                "reward": int(line["total_reward"]),
                 "total_reward": int(line["total_reward"]),
             })
     else:
