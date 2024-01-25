@@ -1077,6 +1077,44 @@ async def biggest_miners_route(request: Request):
     return JSONResponse(ctx)
 
 
+async def address_favorite_route(request: Request):
+    db: Database = request.app.state.db
+    address = request.query_params.get("a")
+    if address is None:
+        raise HTTPException(status_code=400, detail="Missing address")
+    try:
+        limit = request.query_params.get("limit")
+        offset = request.query_params.get("offset")
+        if limit is None:
+            limit = 50
+        else:
+            limit = int(limit)
+        if offset is None:
+            offset = 0
+        else:
+            offset = int(offset)
+    except:
+        raise HTTPException(status_code=400, detail="Invalid page")
+    favorites = await db.get_favorite_by_address(address)
+    if offset < 0 or offset > len(favorites):
+        raise HTTPException(status_code=400, detail="Invalid page")
+    favorite_data: list[dict[str, Any]] = []
+    for favorite in favorites:
+        favorite_data.append({
+            "address": favorite,
+            "lable": favorites[favorite]
+        })
+    if offset + limit > len(favorite_data):
+        data = favorite_data[offset:]
+    else:
+        data = favorite_data[offset:offset + limit]
+    ctx = {
+        "address": address,
+        "favorites": data 
+    }
+    return JSONResponse(ctx)
+
+
 async def favorites_update_route(request: Request):
     db: Database = request.app.state.db
     json = await request.json()
