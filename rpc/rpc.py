@@ -119,6 +119,7 @@ routes = [
     Route("/address_solutions", address_solution_route),
     Route("/address_transactions", address_transaction_route),
     Route("/address_function_transactions", address_function_transaction_route),
+    Route("/address_favorite", address_favorite_route),
     Route("/bonds", address_bonds_transaction_route),
     Route("/baseline_trending", baseline_trending_route),
     Route("/biggest_miners", biggest_miners_route),
@@ -156,7 +157,7 @@ app = Starlette(
     on_startup=[startup],
     middleware=[
         Middleware(AccessLoggerMiddleware, format=log_format),
-        Middleware(CORSMiddleware, allow_origins=['*'], allow_headers=["*"]),
+        Middleware(CORSMiddleware, allow_origins=['*'], allow_headers=["*"], allow_methods=["*"]),
         Middleware(ServerTimingMiddleware),
         Middleware(MinifyMiddleware),
         # Middleware(APIQuotaMiddleware),

@@ -537,3 +537,17 @@ LIMIT 30
                 except Exception as e:
                     await self.message_callback(ExplorerMessage(ExplorerMessage.Type.DatabaseError, e))
                     raise
+
+    async def get_favorite_by_address(self, address: str) -> dict[str, Any]:
+        async with self.pool.connection() as conn:
+            async with conn.cursor() as cur:
+                try:
+                    await cur.execute(
+                        "SELECT favorite FROM address WHERE address = %s", (address,)
+                    )
+                    if (res := await cur.fetchone()) is None:
+                        return {}
+                    return res["favorite"]
+                except Exception as e:
+                    await self.message_callback(ExplorerMessage(ExplorerMessage.Type.DatabaseError, e))
+                    raise
