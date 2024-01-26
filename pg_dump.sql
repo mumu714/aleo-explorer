@@ -2719,6 +2719,13 @@ ALTER TABLE ONLY explorer.leaderboard
     ADD CONSTRAINT leaderboard_pk PRIMARY KEY (address);
 
 --
+-- Name: hashrate hashrate_pk; Type: CONSTRAINT; Schema: explorer; Owner: -
+--
+
+ALTER TABLE ONLY explorer.hashrate
+    ADD CONSTRAINT hashrate_pk PRIMARY KEY (timestamp);
+
+--
 -- Name: coinbase coinbase_pk; Type: CONSTRAINT; Schema: explorer; Owner: -
 --
 
