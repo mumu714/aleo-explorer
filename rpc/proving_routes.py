@@ -1110,7 +1110,8 @@ async def address_favorite_route(request: Request):
         data = favorite_data[offset:offset + limit]
     ctx = {
         "address": address,
-        "favorites": data 
+        "favorites": data,
+        "total_favorites": len(favorites)
     }
     return JSONResponse(ctx)
 
