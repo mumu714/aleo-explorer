@@ -1606,3 +1606,44 @@ class DatabaseInsert(DatabaseBase):
                 except Exception as e:
                     await self.message_callback(ExplorerMessage(ExplorerMessage.Type.DatabaseError, e))
                     raise
+
+    async def update_hashrate(self):
+        async with self.pool.connection() as conn:
+            async with conn.cursor() as cur:
+                try:
+                    await cur.execute(
+                        "SELECT * FROM hashrate "
+                        "ORDER BY timestamp DESC "
+                        "LIMIT %s OFFSET %s",
+                        (288, 0)
+                    )
+                    res = await cur.fetchall()
+                    for hashrate_data in res:
+                        if hashrate_data["hashrate"] < 0.1:
+                            await cur.execute(
+                                "SELECT b.height FROM prover_solution ps "
+                                "JOIN coinbase_solution cs ON ps.coinbase_solution_id = cs.id "
+                                "JOIN block b ON cs.block_id = b.id "
+                                "WHERE timestamp > %s AND timestamp < %s",
+                                (hashrate_data["timestamp"] - 900,hashrate_data["timestamp"])
+                            )
+                            partial_solutions = await cur.fetchall()
+                            heights = list(map(lambda x: x['height'], partial_solutions))
+                            ref_heights = list(map(lambda x: x - 1, set(heights)))
+                            await cur.execute(
+                                "SELECT height, proof_target FROM block WHERE height = ANY(%s::bigint[])", (ref_heights,)
+                            )
+                            ref_proof_targets = await cur.fetchall()
+                            ref_proof_target_dict = dict(map(lambda x: (x['height'], x['proof_target']), ref_proof_targets))
+                            total_solutions = 0
+                            for height in heights:
+                                total_solutions += ref_proof_target_dict[height - 1]
+                            hashrate = total_solutions / 900
+                            await cur.execute(
+                                "INSERT INTO hashrate (timestamp, hashrate) VALUES (%s, %s) "
+                                "ON CONFLICT (timestamp) DO UPDATE SET hashrate = %s",
+                                (hashrate_data["timestamp"], hashrate, hashrate)
+                            )
+                except Exception as e:
+                    await self.message_callback(ExplorerMessage(ExplorerMessage.Type.DatabaseError, e))
+                    raise
