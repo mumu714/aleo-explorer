@@ -99,6 +99,7 @@ class Explorer:
             self.scheduler.add_job(self.add_hashrate, 'cron', minute="*/5", id='job1')  # type: ignore
             self.scheduler.add_job(self.update_address_hashrate, 'cron', minute="*/15", id='job2')  # type: ignore
             self.scheduler.add_job(self.add_coinbase, 'cron', hour="*/12", id='job3')  # type: ignore
+            self.scheduler.add_job(self.update_24H_reward_data, 'cron', hour="*/1", id='job4')  # type: ignore
             while True:
                 msg = await self.message_queue.get()
                 match msg.type:
@@ -165,6 +166,9 @@ class Explorer:
 
     async def add_coinbase(self):
         await self.db.save_one_day_coinbase()
+
+    async def update_24H_reward_data(self):
+        await self.db.save_24H_reward_data()
 
     async def clear_database(self):
         print("The current database has a different genesis block!\nPress Ctrl+C to abort, or wait 10 seconds to clear the database.")
