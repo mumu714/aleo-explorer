@@ -1213,3 +1213,21 @@ class DatabaseBlock(DatabaseBase):
                 except Exception as e:
                     await self.message_callback(ExplorerMessage(ExplorerMessage.Type.DatabaseError, e))
                     raise
+
+    async def get_24H_puzzle_reward(self) -> int:
+        puzzle_reward = await self.redis.get("24H_reward:puzzle")
+        if puzzle_reward is None:
+            return 0
+        return int(puzzle_reward)
+    
+    async def get_24H_block_reward(self) -> int:
+        block_reward = await self.redis.get("24H_reward:block")
+        if block_reward is None:
+            return 0
+        return int(block_reward)
+    
+    async def get_24H_puzzle_reward_1M(self) -> int:
+        puzzle_reward_1M = await self.redis.get("24H_reward:1M_puzzle")
+        if puzzle_reward_1M is None:
+            return 0
+        return int(puzzle_reward_1M)
