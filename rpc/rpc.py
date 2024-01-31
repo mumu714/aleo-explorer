@@ -67,6 +67,9 @@ async def index_route(request: Request):
     provers_count = await db.get_leaderboard_size()
     delegators = await db.get_bonded_mapping()
     total_stake = await db.get_total_stake()
+    puzzle_reward_24H = await db.get_24H_puzzle_reward()
+    block_reward_24H = await db.get_24H_block_reward()
+    puzzle_reward_1M = await db.get_24H_puzzle_reward_1M()
     ctx = {
         "latest_block": format_block(latest_block),
         "validators_count": validators_count,
@@ -75,6 +78,10 @@ async def index_route(request: Request):
         "total_stake": total_stake,
         "recent_blocks": [format_number(recent_block) for recent_block in recent_blocks],
         "network_speed": str(network_speed),
+        "total_reward": puzzle_reward_24H + block_reward_24H,
+        "puzzle_reward": puzzle_reward_24H,
+        "block_reward": block_reward_24H,
+        "puzzle_reward_1M": puzzle_reward_1M,
         "sync_info": sync_info,
     }
     return JSONResponse(ctx)
