@@ -222,7 +222,7 @@ WITH ats AS
      FROM address_transition
      WHERE address = %s
      ORDER BY transition_id DESC
-     LIMIT 30)
+     LIMIT 10)
 SELECT DISTINCT ts.transition_id,
                 b.height,
                 b.timestamp,
@@ -247,7 +247,7 @@ JOIN transaction tx ON tx.id = f.transaction_id
 JOIN confirmed_transaction ct ON ct.id = tx.confirmed_transaction_id
 JOIN block b ON b.id = ct.block_id
 ORDER BY height DESC
-LIMIT 30
+LIMIT 10
 """,
                         (address,)
                     )

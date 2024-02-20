@@ -126,15 +126,38 @@ class DatabaseTransaction(DatabaseBase):
             async with conn.cursor() as cur:
                 try:
                     await cur.execute(
-                        "SELECT DISTINCT t.transition_id, b.height, b.timestamp, t2.transaction_id, ct.type FROM address_transition at "
-                        "JOIN transition t on at.transition_id = t.id "
-                        "LEFT JOIN transaction_execute te on te.id = t.transaction_execute_id "
-                        "LEFT JOIN fee on fee.id = t.fee_id "
-                        "LEFT JOIN transaction t2 on t2.id = te.transaction_id OR t2.id = fee.transaction_id "
-                        "JOIN confirmed_transaction ct on ct.id = t2.confimed_transaction_id "
-                        "JOIN block b on b.id = ct.block_id "
-                        "WHERE at.address = %s ORDER BY b.height DESC "
-                        "LIMIT %s OFFSET %s",
+                        """
+WITH ats AS
+    (SELECT DISTINCT transition_id
+     FROM address_transition
+     WHERE address = %s
+     ORDER BY transition_id DESC
+     LIMIT %s OFFSET %s)
+SELECT DISTINCT ts.transition_id,
+                b.height,
+                b.timestamp,
+                tx.transaction_id, 
+                ct.type
+FROM ats
+JOIN transition ts ON ats.transition_id = ts.id
+JOIN transaction_execute te ON te.id = ts.transaction_execute_id
+JOIN transaction tx ON tx.id = te.transaction_id
+JOIN confirmed_transaction ct ON ct.id = tx.confimed_transaction_id
+JOIN block b ON b.id = ct.block_id
+UNION
+SELECT DISTINCT ts.transition_id,
+                b.height,
+                b.timestamp,
+                tx.transaction_id, 
+                ct.type
+FROM ats
+JOIN transition ts ON ats.transition_id = ts.id
+JOIN fee f ON f.id = ts.fee_id
+JOIN transaction tx ON tx.id = f.transaction_id
+JOIN confirmed_transaction ct ON ct.id = tx.confimed_transaction_id
+JOIN block b ON b.id = ct.block_id
+ORDER BY height DESC
+""",
                         (address, end - start, start)
                     )
                     def transform(x: dict[str, Any]):
@@ -154,28 +177,40 @@ class DatabaseTransaction(DatabaseBase):
         async with self.pool.connection() as conn:
             async with conn.cursor() as cur:
                 try:
-                    if function == "fee_public":
-                        await cur.execute(
-                            "SELECT DISTINCT t.transition_id, b.height, b.timestamp, t2.transaction_id, ct.type FROM address_transition at "
-                            "JOIN transition t on at.transition_id = t.id "
-                            "JOIN fee on fee.id = t.fee_id "
-                            "JOIN transaction t2 on t2.id = fee.transaction_id "
-                            "JOIN confirmed_transaction ct on ct.id = t2.confimed_transaction_id "
-                            "JOIN block b on b.id = ct.block_id "
-                            "WHERE at.address = %s AND t.function_name = %s ORDER BY b.height DESC "
-                            "LIMIT %s OFFSET %s",
-                            (address, function, end - start, start)
-                        )
-                    else:
-                        await cur.execute(
-                            "SELECT DISTINCT t.transition_id, b.height, b.timestamp, t2.transaction_id, ct.type FROM address_transition at "
-                            "JOIN transition t on at.transition_id = t.id "
-                            "JOIN transaction_execute te on te.id = t.transaction_execute_id "
-                            "JOIN transaction t2 on t2.id = te.transaction_id "
-                            "JOIN confirmed_transaction ct on ct.id = t2.confimed_transaction_id "
-                            "JOIN block b on b.id = ct.block_id "
-                            "WHERE at.address = %s AND t.function_name = %s ORDER BY b.height DESC "
-                            "LIMIT %s OFFSET %s",
+                    await cur.execute(
+                        """
+WITH ats AS
+    (SELECT DISTINCT at.transition_id
+     FROM address_transition at
+     JOIN transition ts ON at.transition_id = ts.id
+     WHERE address = %s AND ts.function_name = %s
+     ORDER BY transition_id DESC
+     LIMIT %s OFFSET %s)
+SELECT DISTINCT ts.transition_id,
+                b.height,
+                b.timestamp,
+                tx.transaction_id, 
+                ct.type
+FROM ats
+JOIN transition ts ON ats.transition_id = ts.id
+JOIN transaction_execute te ON te.id = ts.transaction_execute_id
+JOIN transaction tx ON tx.id = te.transaction_id
+JOIN confirmed_transaction ct ON ct.id = tx.confimed_transaction_id
+JOIN block b ON b.id = ct.block_id
+UNION
+SELECT DISTINCT ts.transition_id,
+                b.height,
+                b.timestamp,
+                tx.transaction_id, 
+                ct.type
+FROM ats
+JOIN transition ts ON ats.transition_id = ts.id
+JOIN fee f ON f.id = ts.fee_id
+JOIN transaction tx ON tx.id = f.transaction_id
+JOIN confirmed_transaction ct ON ct.id = tx.confimed_transaction_id
+JOIN block b ON b.id = ct.block_id
+ORDER BY height DESC
+""",
                             (address, function, end - start, start)
                         )
                     def transform(x: dict[str, Any]):
@@ -196,14 +231,27 @@ class DatabaseTransaction(DatabaseBase):
             async with conn.cursor() as cur:
                 try:
                     await cur.execute(
-                        "SELECT DISTINCT t.transition_id, b.height, b.timestamp, t2.transaction_id, ct.type FROM address_transition at "
-                        "JOIN transition t on at.transition_id = t.id "
-                        "JOIN transaction_execute te on te.id = t.transaction_execute_id "
-                        "JOIN transaction t2 on t2.id = te.transaction_id "
-                        "JOIN confirmed_transaction ct on ct.id = t2.confimed_transaction_id "
-                        "JOIN block b on b.id = ct.block_id "
-                        "WHERE at.address = %s AND t.function_name = ANY(%s::text[]) ORDER BY b.height DESC "
-                        "LIMIT %s OFFSET %s",
+                        """
+WITH ats AS
+    (SELECT DISTINCT at.transition_id
+     FROM address_transition at
+     JOIN transition ts ON at.transition_id = ts.id
+     WHERE address = %s AND ts.function_name = ANY(%s::text[])
+     ORDER BY transition_id DESC
+     LIMIT %s OFFSET %s)
+SELECT DISTINCT ts.transition_id,
+                b.height,
+                b.timestamp,
+                tx.transaction_id, 
+                ct.type
+FROM ats
+JOIN transition ts ON ats.transition_id = ts.id
+JOIN transaction_execute te ON te.id = ts.transaction_execute_id
+JOIN transaction tx ON tx.id = te.transaction_id
+JOIN confirmed_transaction ct ON ct.id = tx.confimed_transaction_id
+JOIN block b ON b.id = ct.block_id
+ORDER BY height DESC
+""",
                         (address, ["bond_public", "unbond_public", "claim_unbond_public"], end - start, start)
                     )
                     def transform(x: dict[str, Any]):
