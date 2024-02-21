@@ -595,7 +595,10 @@ async def address_transaction_route(request: Request):
     except:
         raise HTTPException(status_code=400, detail="Invalid page")
     address_info = await db.get_address_info(address)
-    if offset < 0 or offset > address_info["execution_transactions"]:
+    if address_info is None:
+        raise HTTPException(status_code=400, detail="Invalid page")
+    address_transaction_count = address_info["execution_transactions"]+address_info["fee_transactions"]
+    if offset < 0 or offset > address_transaction_count:
         raise HTTPException(status_code=400, detail="Invalid page")
     transitions = await db.get_transition_by_address(address, offset, offset + limit)
     data: list[dict[str, Any]] = []
