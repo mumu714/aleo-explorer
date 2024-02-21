@@ -82,20 +82,11 @@ class DatabaseTransaction(DatabaseBase):
         async with self.pool.connection() as conn:
             async with conn.cursor() as cur:
                 try:
-                    if function == "fee_public":
-                        await cur.execute(
-                            "SELECT COUNT(DISTINCT at.transition_id) FROM address_transition at "
-                            "JOIN transition t on at.transition_id = t.id "
-                            "JOIN fee on fee.id = t.fee_id "
-                            "WHERE at.address = %s AND t.function_name = %s",(address,function,)
-                        )
-                    else:
-                        await cur.execute(
-                            "SELECT COUNT(DISTINCT at.transition_id) FROM address_transition at "
-                            "JOIN transition t on at.transition_id = t.id "
-                            "JOIN transaction_execute te on te.id = t.transaction_execute_id "
-                            "WHERE at.address = %s AND t.function_name = %s",(address,function,)
-                        )
+                    await cur.execute(
+                        "SELECT COUNT(DISTINCT at.transition_id) FROM address_transition at "
+                        "JOIN transition t on at.transition_id = t.id "
+                        "WHERE at.address = %s AND t.function_name = %s",(address,function,)
+                    )
                     if (res := await cur.fetchone()) is None:
                         return 0
                     return res["count"]
@@ -110,7 +101,6 @@ class DatabaseTransaction(DatabaseBase):
                     await cur.execute(
                         "SELECT COUNT(DISTINCT at.transition_id) FROM address_transition at "
                         "JOIN transition t on at.transition_id = t.id "
-                        "JOIN transaction_execute te on te.id = t.transaction_execute_id "
                         "WHERE at.address = %s AND t.function_name = ANY(%s::text[])",
                         (address,["bond_public", "unbond_public", "claim_unbond_public"],)
                     )
