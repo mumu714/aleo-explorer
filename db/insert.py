@@ -62,73 +62,6 @@ class DatabaseInsert(DatabaseBase):
                         (address, functions, functions)
                     )
 
-    @staticmethod
-    async def _insert_address_transition_detail(conn: psycopg.AsyncConnection[dict[str, Any]], address: str, transition_id: int):
-        async with conn.cursor() as cur:
-            await cur.execute(
-                    "SELECT transaction_execute_id, fee_id FROM transition t WHERE t.id = %s",(transition_id,)
-                )
-            if (res := await cur.fetchone()) is None:
-                raise RuntimeError("database inconsistent")
-            transaction_execute_id = res["transaction_execute_id"]
-            fee_id = res["fee_id"]
-            if transaction_execute_id:
-                await cur.execute(
-                    "SELECT t2.confimed_transaction_id FROM transition t "
-                    "JOIN transaction_execute te on te.id = t.transaction_execute_id "
-                    "JOIN transaction t2 on t2.id = te.transaction_id  "
-                    "WHERE t.id = %s",
-                    (transition_id,)
-                )
-            elif fee_id:
-                await cur.execute(
-                    "SELECT t2.confimed_transaction_id FROM transition t "
-                    "JOIN fee on fee.id = t.fee_id "
-                    "JOIN transaction t2 on t2.id = fee.transaction_id "
-                    "WHERE t.id = %s",
-                    (transition_id,)
-                )
-            if (res := await cur.fetchone()) is None:
-                raise RuntimeError("database inconsistent")
-            confimed_transaction_id = res["confimed_transaction_id"]
-            if confimed_transaction_id:
-                if transaction_execute_id:
-                    await cur.execute(
-                        "SELECT t.transition_id, b.height, b.timestamp, t2.transaction_id, ct.type, "
-                        "t.function_name, t.program_id FROM transition t "
-                        "JOIN transaction_execute te on te.id = t.transaction_execute_id "
-                        "JOIN transaction t2 on t2.id = te.transaction_id "
-                        "JOIN confirmed_transaction ct on ct.id = t2.confimed_transaction_id "
-                        "JOIN block b on b.id = ct.block_id "
-                        "WHERE t.id = %s",
-                        (transition_id,)
-                    )
-                elif fee_id:
-                    await cur.execute(
-                        "SELECT t.transition_id, b.height, b.timestamp, t2.transaction_id, ct.type, "
-                        "t.function_name, t.program_id FROM transition t "
-                        "JOIN fee on fee.id = t.fee_id "
-                        "JOIN transaction t2 on t2.id = fee.transaction_id "
-                        "JOIN confirmed_transaction ct on ct.id = t2.confimed_transaction_id "
-                        "JOIN block b on b.id = ct.block_id "
-                        "WHERE t.id = %s",
-                        (transition_id,)
-                    )
-                if (res := await cur.fetchone()) is None:
-                    raise RuntimeError("database inconsistent")
-                transition_id = res["transition_id"]
-                transaction_id = res["transaction_id"]
-                height = res["height"]
-                timestamp = res["timestamp"]
-                transition_type = res["type"]
-                function_name = res["function_name"]
-                program_id = res["program_id"]
-                await cur.execute(
-                    "INSERT INTO address_transition_detail "
-                    "(address, transition_id, transaction_id, height, timestamp, program_id, function_name, type) "
-                    "VALUES (%s, %s, %s, %s, %s, %s, %s, %s)",
-                    (address, transition_id, transaction_id,  height, timestamp, program_id, function_name, transition_type)
-                )
 
     @staticmethod
     async def _insert_future(conn: psycopg.AsyncConnection[dict[str, Any]], future: Future,
@@ -201,7 +134,6 @@ class DatabaseInsert(DatabaseBase):
                             "INSERT INTO address_transition (address, transition_id) VALUES (%s, %s)",
                             (address, transition_db_id)
                         )
-                        await DatabaseInsert._insert_address_transition_detail(conn, address, transition_db_id)
                         address_list.append(address)
                     elif isinstance(plaintext, StructPlaintext):
                         addresses = DatabaseUtil.get_addresses_from_struct(plaintext)
@@ -210,7 +142,6 @@ class DatabaseInsert(DatabaseBase):
                                 "INSERT INTO address_transition (address, transition_id) VALUES (%s, %s)",
                                 (address, transition_db_id)
                             )
-                            await DatabaseInsert._insert_address_transition_detail(conn, address, transition_db_id)
                             address_list.append(address)
                 elif isinstance(argument, FutureArgument):
                     await cur.execute(
@@ -274,7 +205,6 @@ class DatabaseInsert(DatabaseBase):
                                 "INSERT INTO address_transition (address, transition_id) VALUES (%s, %s)",
                                 (address, transition_db_id)
                             )
-                            await DatabaseInsert._insert_address_transition_detail(conn, address, transition_db_id)
                             address_list.append(address)
                         elif isinstance(plaintext, StructPlaintext):
                             addresses = DatabaseUtil.get_addresses_from_struct(plaintext)
@@ -283,7 +213,6 @@ class DatabaseInsert(DatabaseBase):
                                     "INSERT INTO address_transition (address, transition_id) VALUES (%s, %s)",
                                     (address, transition_db_id)
                                 )
-                                await DatabaseInsert._insert_address_transition_detail(conn, address, transition_db_id)
                                 address_list.append(address)
                 elif isinstance(transition_input, PrivateTransitionInput):
                     await cur.execute(
