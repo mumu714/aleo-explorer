@@ -344,43 +344,6 @@ CREATE TABLE explorer.address (
 
 
 --
--- Name: address_transition_detail; Type: TABLE; Schema: explorer; Owner: -
---
-
-CREATE TABLE explorer.address_transition_detail (
-    id integer NOT NULL,
-    address text NOT NULL,
-    transition_id text NOT NULL,
-    transaction_id text NOT NULL,
-    height bigint NOT NULL,
-    "timestamp" bigint NOT NULL,
-    program_id text NOT NULL,
-    function_name text NOT NULL,
-    type explorer.confirmed_transaction_type NOT NULL
-);
-
-
---
--- Name: address_transition_detail_id_seq; Type: SEQUENCE; Schema: explorer; Owner: -
---
-
-CREATE SEQUENCE explorer.address_transition_detail_id_seq
-    AS integer
-    START WITH 1
-    INCREMENT BY 1
-    NO MINVALUE
-    NO MAXVALUE
-    CACHE 1;
-
-
---
--- Name: address_transition_detail_id_seq; Type: SEQUENCE OWNED BY; Schema: explorer; Owner: -
---
-
-ALTER SEQUENCE explorer.address_transition_detail_id_seq OWNED BY explorer.address_transition_detail.id;
-
-
---
 -- Name: address_stake_reward; Type: TABLE; Schema: explorer; Owner: -
 --
 
@@ -2149,13 +2112,6 @@ ALTER SEQUENCE explorer.transition_output_record_id_seq OWNED BY explorer.transi
 
 
 --
--- Name: address_transition_detail id; Type: DEFAULT; Schema: explorer; Owner: -
---
-
-ALTER TABLE ONLY explorer.address_transition_detail ALTER COLUMN id SET DEFAULT nextval('explorer.address_transition_detail_id_seq'::regclass);
-
-
---
 -- Name: address_stake_reward id; Type: DEFAULT; Schema: explorer; Owner: -
 --
 
@@ -3022,20 +2978,6 @@ CREATE INDEX address_transition_address_index ON explorer.address_transition USI
 --
 
 CREATE INDEX address_transition_transition_id_index ON explorer.address_transition USING btree (transition_id);
-
-
---
--- Name: address_transition_detail_address_index; Type: INDEX; Schema: explorer; Owner: -
---
-
-CREATE INDEX address_transition_detail_address_index ON explorer.address_transition_detail USING btree (address text_pattern_ops);
-
-
---
--- Name: address_transition_detail_function_name_index; Type: INDEX; Schema: explorer; Owner: -
---
-
-CREATE INDEX address_transition_detail_function_name_index ON explorer.address_transition_detail USING btree (function_name text_pattern_ops);
 
 
 -- Name: address_stake_reward_address_index; Type: INDEX; Schema: explorer; Owner: -
