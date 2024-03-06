@@ -879,11 +879,11 @@ class DatabaseBlock(DatabaseBase):
                     for signature in dag_vertex_signatures:
                         signatures.append(Signature.loads(signature["signature"]))
 
-                    await cur.execute(
-                        "SELECT previous_vertex_id FROM dag_vertex_adjacency WHERE vertex_id = %s ORDER BY index",
-                        (dag_vertex["id"],)
-                    )
-                    previous_ids = [x["previous_vertex_id"] for x in await cur.fetchall()]
+                    # await cur.execute(
+                    #     "SELECT previous_vertex_id FROM dag_vertex_adjacency WHERE vertex_id = %s ORDER BY index",
+                    #     (dag_vertex["id"],)
+                    # )
+                    # previous_ids = [x["previous_vertex_id"] for x in await cur.fetchall()]
 
                     # TODO: use batch id after next reset - do we still want to keep this? would be way too expensive
                     await cur.execute(
