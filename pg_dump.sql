@@ -186,7 +186,8 @@ CREATE TABLE explorer.address_15min_hashrate (
 
 CREATE TABLE explorer.address_transition (
     address text NOT NULL,
-    transition_id integer NOT NULL
+    transition_id integer NOT NULL,
+    function_name text NOT NULL
 );
 
 
@@ -525,6 +526,36 @@ CREATE SEQUENCE explorer.dag_vertex_adjacency_id_seq
 --
 
 ALTER SEQUENCE explorer.dag_vertex_adjacency_id_seq OWNED BY explorer.dag_vertex_adjacency.id;
+
+
+--
+-- Name: dag_vertex_previous_id; Type: TABLE; Schema: explorer; Owner: -
+--
+
+CREATE TABLE explorer.dag_vertex_previous_id (
+    id bigint NOT NULL,
+    vertex_id bigint NOT NULL,
+    previous_vertex_id text[]
+);
+
+
+--
+-- Name: dag_vertex_previous_id_id_seq; Type: SEQUENCE; Schema: explorer; Owner: -
+--
+
+CREATE SEQUENCE explorer.dag_vertex_previous_id_id_seq
+    START WITH 1
+    INCREMENT BY 1
+    NO MINVALUE
+    NO MAXVALUE
+    CACHE 1;
+
+
+--
+-- Name: ddag_vertex_previous_id_id_seq; Type: SEQUENCE OWNED BY; Schema: explorer; Owner: -
+--
+
+ALTER SEQUENCE explorer.dag_vertex_previous_id_id_seq OWNED BY explorer.dag_vertex_adjacency.id;
 
 
 --
@@ -1827,6 +1858,13 @@ ALTER TABLE ONLY explorer.dag_vertex_adjacency ALTER COLUMN id SET DEFAULT nextv
 
 
 --
+-- Name: dag_vertex_previous_id id; Type: DEFAULT; Schema: explorer; Owner: -
+--
+
+ALTER TABLE ONLY explorer.dag_vertex_previous_id ALTER COLUMN id SET DEFAULT nextval('explorer.dag_vertex_previous_id_id_seq'::regclass);
+
+
+--
 -- Name: dag_vertex_signature id; Type: DEFAULT; Schema: explorer; Owner: -
 --
 
@@ -2148,6 +2186,14 @@ ALTER TABLE ONLY explorer.confirmed_transaction
 
 ALTER TABLE ONLY explorer.dag_vertex_adjacency
     ADD CONSTRAINT dag_vertex_adjacency_pk PRIMARY KEY (id);
+
+
+--
+-- Name: dag_vertex_previous_id dag_vertex_previous_id_pk; Type: CONSTRAINT; Schema: explorer; Owner: -
+--
+
+ALTER TABLE ONLY explorer.dag_vertex_previous_id
+    ADD CONSTRAINT dag_vertex_previous_id_pk PRIMARY KEY (id);
 
 
 --
@@ -2519,6 +2565,13 @@ CREATE INDEX address_transition_address_index ON explorer.address_transition USI
 CREATE INDEX address_transition_transition_id_index ON explorer.address_transition USING btree (transition_id);
 
 
+--
+-- Name: address_transition_function_name_index; Type: INDEX; Schema: explorer; Owner: -
+--
+
+CREATE INDEX address_transition_function_name_index ON explorer.address_transition USING btree (function_name);
+
+
 -- Name: address_stake_reward_address_index; Type: INDEX; Schema: explorer; Owner: -
 --
 
@@ -2627,6 +2680,13 @@ CREATE INDEX dag_vertex_adjacency_end_vertex_index ON explorer.dag_vertex_adjace
 --
 
 CREATE INDEX dag_vertex_adjacency_index_index ON explorer.dag_vertex_adjacency USING btree (index);
+
+
+--
+-- Name: dag_vertex_previous_id_vertex_id_index; Type: INDEX; Schema: explorer; Owner: -
+--
+
+CREATE INDEX dag_vertex_previous_id_vertex_id_index ON explorer.dag_vertex_previous_id USING btree (vertex_id);
 
 
 --
@@ -3174,6 +3234,14 @@ ALTER TABLE ONLY explorer.dag_vertex_adjacency
 
 ALTER TABLE ONLY explorer.dag_vertex_adjacency
     ADD CONSTRAINT dag_vertex_adjacency_dag_vertex_id_fk2 FOREIGN KEY (previous_vertex_id) REFERENCES explorer.dag_vertex(id);
+
+
+--
+-- Name: dag_vertex_previous_id dag_vertex_previous_id_dag_vertex_id_fk; Type: FK CONSTRAINT; Schema: explorer; Owner: -
+--
+
+ALTER TABLE ONLY explorer.dag_vertex_previous_id
+    ADD CONSTRAINT dag_vertex_previous_id_dag_vertex_id_fk FOREIGN KEY (vertex_id) REFERENCES explorer.dag_vertex(id);
 
 
 --

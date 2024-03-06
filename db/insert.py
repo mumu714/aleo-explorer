@@ -78,7 +78,7 @@ class DatabaseInsert(DatabaseBase):
                     raise RuntimeError("failed to insert row into database")
                 future_db_id = res["id"]
                 await cur.execute(
-                    "SELECT t.id FROM transition t "
+                    "SELECT t.id, t.function_name FROM transition t "
                     "JOIN transition_output o on t.id = o.transition_id "
                     "JOIN transition_output_future tof on o.id = tof.transition_output_id "
                     "WHERE tof.id = %s",
@@ -87,6 +87,7 @@ class DatabaseInsert(DatabaseBase):
                 if (res := await cur.fetchone()) is None:
                     raise RuntimeError("database inconsistent")
                 transition_db_id = res["id"]
+                function_name = res["function_name"]
             elif argument_db_id:
                 await cur.execute(
                     "INSERT INTO future (type, future_argument_id, program_id, function_name) "
@@ -110,7 +111,7 @@ class DatabaseInsert(DatabaseBase):
                         break
                     argument_db_id = res["future_argument_id"]
                 await cur.execute(
-                    "SELECT t.id FROM transition t "
+                    "SELECT t.id, t.function_name FROM transition t "
                     "JOIN transition_output o on t.id = o.transition_id "
                     "JOIN transition_output_future tof on o.id = tof.transition_output_id "
                     "WHERE tof.id = %s",
@@ -119,6 +120,7 @@ class DatabaseInsert(DatabaseBase):
                 if (res := await cur.fetchone()) is None:
                     raise RuntimeError("database inconsistent")
                 transition_db_id = res["id"]
+                function_name = res["function_name"]
             else:
                 raise ValueError("transition_output_db_id or argument_db_id must be set")
             for argument in future.arguments:
@@ -131,16 +133,16 @@ class DatabaseInsert(DatabaseBase):
                     if isinstance(plaintext, LiteralPlaintext) and plaintext.literal.type == Literal.Type.Address:
                         address = str(plaintext.literal.primitive)
                         await cur.execute(
-                            "INSERT INTO address_transition (address, transition_id) VALUES (%s, %s)",
-                            (address, transition_db_id)
+                            "INSERT INTO address_transition (address, transition_id, function_name) VALUES (%s, %s, %s)",
+                            (address, transition_db_id, function_name)
                         )
                         address_list.append(address)
                     elif isinstance(plaintext, StructPlaintext):
                         addresses = DatabaseUtil.get_addresses_from_struct(plaintext)
                         for address in addresses:
                             await cur.execute(
-                                "INSERT INTO address_transition (address, transition_id) VALUES (%s, %s)",
-                                (address, transition_db_id)
+                                "INSERT INTO address_transition (address, transition_id, function_name) VALUES (%s, %s, %s)",
+                                (address, transition_db_id, function_name)
                             )
                             address_list.append(address)
                 elif isinstance(argument, FutureArgument):
@@ -202,16 +204,16 @@ class DatabaseInsert(DatabaseBase):
                         if isinstance(plaintext, LiteralPlaintext) and plaintext.literal.type == Literal.Type.Address:
                             address = str(plaintext.literal.primitive)
                             await cur.execute(
-                                "INSERT INTO address_transition (address, transition_id) VALUES (%s, %s)",
-                                (address, transition_db_id)
+                                "INSERT INTO address_transition (address, transition_id, function_name) VALUES (%s, %s, %s)",
+                                (address, transition_db_id, str(transition.function_name))
                             )
                             address_list.append(address)
                         elif isinstance(plaintext, StructPlaintext):
                             addresses = DatabaseUtil.get_addresses_from_struct(plaintext)
                             for address in addresses:
                                 await cur.execute(
-                                    "INSERT INTO address_transition (address, transition_id) VALUES (%s, %s)",
-                                    (address, transition_db_id)
+                                    "INSERT INTO address_transition (address, transition_id, function_name) VALUES (%s, %s, %s)",
+                                    (address, transition_db_id, str(transition.function_name))
                                 )
                                 address_list.append(address)
                 elif isinstance(transition_input, PrivateTransitionInput):
@@ -1169,7 +1171,13 @@ class DatabaseInsert(DatabaseBase):
                                                 (vertex_db_id, str(signature), sig_index)
                                             )
 
-                                    # prev_cert_ids = certificate.batch_header.previous_certificate_ids
+                                    prev_cert_ids = certificate.batch_header.previous_certificate_ids
+                                    if prev_cert_ids:
+                                        await cur.execute(
+                                                "INSERT INTO dag_vertex_previous_id (vertex_id, previous_vertex_id) "
+                                                "VALUES (%s, %s)",
+                                                (vertex_db_id, list(map(str, prev_cert_ids)))
+                                            )
                                     # await cur.execute(
                                     #     "SELECT v.id, batch_certificate_id FROM dag_vertex v "
                                     #     "JOIN UNNEST(%s::text[]) WITH ORDINALITY c(id, ord) ON v.batch_certificate_id = c.id "

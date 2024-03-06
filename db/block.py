@@ -887,11 +887,11 @@ class DatabaseBlock(DatabaseBase):
                         for signature in dag_vertex_signatures:
                             signatures.append(Signature.loads(signature["signature"]))
 
-                    await cur.execute(
-                        "SELECT previous_vertex_id FROM dag_vertex_adjacency WHERE vertex_id = %s ORDER BY index",
-                        (dag_vertex["id"],)
-                    )
-                    previous_ids = [x["previous_vertex_id"] for x in await cur.fetchall()]
+                    # await cur.execute(
+                    #     "SELECT previous_vertex_id FROM dag_vertex_adjacency WHERE vertex_id = %s ORDER BY index",
+                    #     (dag_vertex["id"],)
+                    # )
+                    # previous_ids = [x["previous_vertex_id"] for x in await cur.fetchall()]
 
                     # TODO: use batch id after next reset
                     # await cur.execute(
@@ -908,7 +908,15 @@ class DatabaseBlock(DatabaseBase):
                     #     (previous_ids,)
                     # )
                     # previous_cert_ids += [x["batch_id"] for x in await cur.fetchall() if x["batch_id"]]
-                    previous_cert_ids = []
+                    await cur.execute(
+                        "SELECT previous_vertex_id FROM dag_vertex_previous_id WHERE vertex_id = %s ",
+                        (dag_vertex["id"],)
+                    )
+                    res = await cur.fetchone()
+                    if res:
+                        previous_cert_ids = res["previous_vertex_id"]
+                    else:
+                        previous_cert_ids = []
 
                     await cur.execute(
                         "SELECT * FROM dag_vertex_transmission_id WHERE vertex_id = %s ORDER BY index",
