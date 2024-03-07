@@ -128,6 +128,7 @@ routes = [
     Route("/address_function_transactions", address_function_transaction_route),
     Route("/address_favorite", address_favorite_route),
     Route("/bonds", address_bonds_transaction_route),
+    Route("/transfer", address_transfer_transaction_route),
     Route("/baseline_trending", baseline_trending_route),
     Route("/biggest_miners", biggest_miners_route),
     # Other
