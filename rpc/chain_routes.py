@@ -886,3 +886,40 @@ async def coinbase_route(request: Request):
         "coinbase": data,
     }
     return JSONResponse(ctx)
+
+
+async def unconfirmed_transactions_route(request: Request):
+    db: Database = request.app.state.db
+    try:
+        limit = request.query_params.get("limit")
+        offset = request.query_params.get("offset")
+        if limit is None:
+            limit = 10
+        else:
+            limit = int(limit)
+        if offset is None:
+            offset = 0
+        else:
+            offset = int(offset)
+    except:
+        raise HTTPException(status_code=400, detail="Invalid page")
+    total_transactions = await db.get_unconfirmed_transaction_count()
+    if offset > total_transactions:
+        raise HTTPException(status_code=400, detail="Invalid page")
+    start = offset
+    transactions_data = await db.get_unconfirmed_transactions_range(start, start + limit)
+    transactions: list[dict[str, Any]] = []
+    for tx in transactions_data:
+        transactions.append({
+            "tx_id": str(tx.id),
+            "type": str(tx.type.name),
+            "first_seen": await db.get_transaction_first_seen(str(tx.id)),
+        })
+
+    sync_info = await out_of_sync_check(db)
+    ctx = {
+        "transactions": transactions,
+        "totalCount": total_transactions,
+        "sync_info": sync_info,
+    }    
+    return JSONResponse(ctx)
