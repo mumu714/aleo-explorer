@@ -790,6 +790,67 @@ async def address_bonds_transaction_route(request: Request):
     return JSONResponse(ctx)
 
 
+async def address_transfer_transaction_route(request: Request):
+    db: Database = request.app.state.db
+    address = request.query_params.get("a")
+    if address is None:
+        raise HTTPException(status_code=400, detail="Missing address")
+    try:
+        limit = request.query_params.get("limit")
+        offset = request.query_params.get("offset")
+        if limit is None:
+            limit = 10
+        else:
+            limit = int(limit)
+        if offset is None:
+            offset = 0
+        else:
+            offset = int(offset)
+    except:
+        raise HTTPException(status_code=400, detail="Invalid page")
+    transfer_count = await db.get_transition_count_by_address_and_function(address, "transfer_public")
+    if offset < 0 or offset > transfer_count:
+        raise HTTPException(status_code=400, detail="Invalid page")
+    transfer_transitions = await db.get_transition_by_address_and_function(address, "transfer_public", offset, offset + limit)
+    data: list[dict[str, Any]] = []
+    for transition_data in transfer_transitions:
+        transition = await db.get_transition(transition_data["transition_id"])
+        if transition is None:
+            raise HTTPException(status_code=550, detail="Transition not found")
+        output = cast(FutureTransitionOutput, transition.outputs[0])
+        future = cast(Future, output.future.value)
+        transfer_from = str(Database.get_primitive_from_argument_unchecked(future.arguments[0]))
+        transfer_to = str(Database.get_primitive_from_argument_unchecked(future.arguments[1]))
+        amount = int(cast(int, Database.get_primitive_from_argument_unchecked(future.arguments[2])))
+        state = ""
+        if transition_data["type"].startswith("Accepted"):
+            state = "Accepted"
+        elif transition_data["type"].startswith("Rejected"):
+            state = "Rejected"
+        data.append({
+            "transition_id": transition_data["transition_id"],
+            "height": transition_data["height"],
+            "timestamp": transition_data["timestamp"],
+            "transaction_id": transition_data["transaction_id"],
+            "transfer_from": transfer_from,
+            "transfer_to": transfer_to,
+            "credits": amount,
+            "state": state,
+            "program_id": str(transition.program_id),
+            "function_name": str(transition.function_name),
+        })
+
+    sync_info = await out_of_sync_check(db)
+    ctx = {
+        "address": address,
+        "address_trunc": address[:14] + "..." + address[-6:],
+        "transfer_count": transfer_count,
+        "transactions": data,
+        "sync_info": sync_info,
+    }
+    return JSONResponse(ctx)
+
+
 async def address_trending_route(request: Request):
     db: Database = request.app.state.db
     address = request.query_params.get("a")
