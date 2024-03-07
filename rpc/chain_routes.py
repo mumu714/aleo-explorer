@@ -299,6 +299,7 @@ async def transaction_route(request: Request):
         "index": index,
         "type": transaction_type,
         "state": transaction_state,
+        "transaction_type": "",
         "total_fee": storage_cost + namespace_cost + sum(finalize_costs) + priority_fee + burnt,
         "storage_cost": storage_cost,
         "namespace_cost": namespace_cost,
@@ -331,6 +332,18 @@ async def transaction_route(request: Request):
                 "transition_id": str(transition.id),
                 "action": await function_signature(db, str(transition.program_id), str(transition.function_name), False),
             })
+            if transition.program_id == "credits.aleo" and transition.function_name == "transfer_public":
+                output = cast(FutureTransitionOutput, transition.outputs[0])
+                future = cast(Future, output.future.value)
+                transfer_from = str(Database.get_primitive_from_argument_unchecked(future.arguments[0]))
+                transfer_to = str(Database.get_primitive_from_argument_unchecked(future.arguments[1]))
+                amount = int(cast(int, Database.get_primitive_from_argument_unchecked(future.arguments[2])))
+                ctx["transfer_detail"] = {
+                    "transfer_from": transfer_from,
+                    "transfer_to": transfer_to,
+                    "amount": amount
+                }
+                ctx.update({"transaction_type": "transfer"})
         if transaction.additional_fee.value is not None:
             additional_fee = transaction.additional_fee.value
             transition = additional_fee.transition
