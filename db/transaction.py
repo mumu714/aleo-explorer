@@ -63,13 +63,20 @@ class DatabaseTransaction(DatabaseBase):
             async with conn.cursor() as cur:
                 try:
                     await cur.execute(
-                        "SELECT b.height, b.timestamp, ts.transition_id, ts.program_id, function_name, ct.type "
+                        "SELECT b.height, b.timestamp, ts.transition_id, ts.program_id, ts.function_name, ct.type "
                         "FROM transition ts "
                         "JOIN transaction_execute te on te.id = ts.transaction_execute_id "
                         "JOIN transaction t on te.transaction_id = t.id "
                         "JOIN confirmed_transaction ct on t.confimed_transaction_id = ct.id "
                         "JOIN block b on ct.block_id = b.id "
-                        "ORDER BY b.height DESC "
+                        "UNION "
+                        "SELECT b.height, b.timestamp, ts.transition_id, ts.program_id, ts.function_name, ct.type "
+                        "FROM transition ts "
+                        "JOIN fee f ON f.id = ts.fee_id "
+                        "JOIN transaction t ON f.transaction_id = t.id "
+                        "JOIN confirmed_transaction ct ON t.confimed_transaction_id = ct.id "
+                        "JOIN block b ON ct.block_id = b.id "
+                        "ORDER BY height DESC "
                         "LIMIT %s OFFSET %s",
                         (end - start, start)
                     )
