@@ -17,7 +17,7 @@ class DatabaseTransaction(DatabaseBase):
             async with conn.cursor() as cur:
                 try:
                     await cur.execute(
-                        "SELECT COUNT(*) FROM transaction "
+                        "SELECT COUNT(*) FROM transaction WHERE confimed_transaction_id IS not NULL"
                     )
                     if (res := await cur.fetchone()) is None:
                         return 0

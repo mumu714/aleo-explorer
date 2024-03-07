@@ -842,7 +842,7 @@ async def blocks_route(request: Request):
     total_blocks = await db.get_latest_height()
     if not total_blocks:
         raise HTTPException(status_code=550, detail="No blocks found")
-    if offset < 0 or offset + limit > total_blocks:
+    if offset < 0 or offset > total_blocks:
         raise HTTPException(status_code=400, detail="Invalid page")
     start = total_blocks - offset
     blocks = await db.get_blocks_range_fast(start, start - limit)
