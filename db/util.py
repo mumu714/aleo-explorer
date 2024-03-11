@@ -54,6 +54,7 @@ class DatabaseUtil(DatabaseBase):
                             "credits.aleo:bonded",
                             "credits.aleo:committee",
                             "address_stake_reward",
+                            "address_delegate_reward",
                             "address_transfer_in",
                             "address_transfer_out",
                             "address_fee",
