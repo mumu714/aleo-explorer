@@ -39,6 +39,7 @@ class DatabaseUtil(DatabaseBase):
                 await conn.execute("TRUNCATE TABLE mapping_history_last_id RESTART IDENTITY CASCADE")
                 await conn.execute("TRUNCATE TABLE committee_history RESTART IDENTITY CASCADE")
                 await conn.execute("TRUNCATE TABLE committee_history_member RESTART IDENTITY CASCADE")
+                await conn.execute("TRUNCATE TABLE leaderboard RESTART IDENTITY CASCADE")
                 await conn.execute("TRUNCATE TABLE mapping_bonded_history RESTART IDENTITY CASCADE")
                 await conn.execute("TRUNCATE TABLE mapping_committee_history RESTART IDENTITY CASCADE")
                 await conn.execute("TRUNCATE TABLE mapping_delegated_history RESTART IDENTITY CASCADE")
@@ -200,6 +201,22 @@ class DatabaseUtil(DatabaseBase):
                                         "WHERE p.program_id = %s AND p.id = pf.program_id AND pf.name = %s",
                                         (str(ts.program_id), str(ts.function_name))
                                     )
+                            # TODO: change leaderboard to something else, we dont need that on mainnet
+                            # revert leaderboard
+                            await cur.execute(
+                                "SELECT address, reward FROM prover_solution ps "
+                                "JOIN coinbase_solution cs on ps.coinbase_solution_id = cs.id "
+                                "JOIN explorer.block b on b.id = cs.block_id "
+                                "WHERE b.height = %s",
+                                (block.height,)
+                            )
+                            for item in await cur.fetchall():
+                                address = item["address"]
+                                reward = item["reward"]
+                                await cur.execute(
+                                    "UPDATE leaderboard SET total_reward = total_reward - %s WHERE address = %s",
+                                    (reward, address)
+                                )
                         await cur.execute(
                             "DELETE FROM block WHERE height > %s",
                             (last_backup_height,)
