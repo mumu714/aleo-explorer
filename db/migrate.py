@@ -20,7 +20,7 @@ class DatabaseMigrate(DatabaseBase):
             (2, self.migrate_2_add_helper_functions),
             (3, self.migrate_3_set_mapping_history_key_not_null),
             (4, self.migrate_4_support_batch_certificate_v2),
-            # (5, self.migrate_5_fix_missing_program),
+            (5, self.migrate_5_fix_missing_program),
             (6, self.migrate_6_nullable_dag_vertex_id),
             (7, self.migrate_7_nullable_confirmed_transaction),
             (8, self.migrate_8_add_transaction_first_seen),
@@ -33,6 +33,7 @@ class DatabaseMigrate(DatabaseBase):
             (15, self.migrate_15_add_mapping_history_last_id),
             (16, self.migrate_16_add_rejected_deploy_support),
             (17, self.migrate_17_inconsistent_database_workaround),
+            (18, self.migrate_18_add_address_transition_function_name),
         ]
         async with self.pool.connection() as conn:
             async with conn.cursor() as cur:
@@ -207,3 +208,35 @@ WHERE tables.oid = pg_trigger.tgrelid
     @staticmethod
     async def migrate_17_inconsistent_database_workaround(conn: psycopg.AsyncConnection[dict[str, Any]]):
         await conn.execute(open("migration_17.sql").read())
+
+    @staticmethod
+    async def migrate_18_add_address_transition_function_name(conn: psycopg.AsyncConnection[dict[str, Any]]):
+        print("WARNING: This migration needs 10+ GBs of RAM")
+        print("Long running migration, please wait")
+        await conn.execute("alter table address_transition add function_name text")
+        async with conn.cursor() as cur:
+            await cur.execute("select count(*) from address_transition")
+            count = (await cur.fetchone())["count"]
+            await cur.execute("select DISTINCT at.transition_id, ts.function_name from address_transition at "
+                              "JOIN transition ts ON at.transition_id = ts.id order by transition_id ")
+            n = 0
+            data = await cur.fetchall()
+            update_data = []
+
+            for row in data:
+                update_data.append((row["transition_id"], row["function_name"]))
+                n += 1
+                if n % 1000000 == 0:
+                    print(f"{n}/{count} rows processed")
+
+            print("Updating database...")
+            print("1/5")
+            await cur.execute("create temporary table address_transition_temp (id bigint, function_name text) on commit drop")
+            print("2/5")
+            async with cur.copy("copy address_transition_temp (id, function_name) from stdin") as copy:
+                for row in update_data:
+                    await copy.write_row(row)
+            print("3/5")
+            await cur.execute("create unique index address_transition_temp_id_uindex on address_transition_temp (id)")
+            print("4/5")
+            await cur.execute("update address_transition set function_name = m.function_name from address_transition_temp m where address_transition.transition_id = m.id")
