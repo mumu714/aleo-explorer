@@ -34,6 +34,7 @@ class DatabaseMigrate(DatabaseBase):
             (16, self.migrate_16_add_rejected_deploy_support),
             (17, self.migrate_17_inconsistent_database_workaround),
             (18, self.migrate_18_add_address_transition_function_name),
+            (19, self.migrate_19_add_address_transition_function_name),
         ]
         async with self.pool.connection() as conn:
             async with conn.cursor() as cur:
@@ -240,3 +241,42 @@ WHERE tables.oid = pg_trigger.tgrelid
             await cur.execute("create unique index address_transition_temp_id_uindex on address_transition_temp (id)")
             print("4/5")
             await cur.execute("update address_transition set function_name = m.function_name from address_transition_temp m where address_transition.transition_id = m.id")
+
+    @staticmethod
+    async def migrate_19_add_address_transition_function_name(conn: psycopg.AsyncConnection[dict[str, Any]]):
+        print("WARNING: This migration needs 10+ GBs of RAM")
+        print("Long running migration, please wait")
+        await conn.execute("alter table transition add transaction_id integer")
+        await conn.execute("alter table transition add confimed_transaction_id integer")
+        async with conn.cursor() as cur:
+            await cur.execute("select count(*) from transition")
+            count = (await cur.fetchone())["count"]
+            await cur.execute("select ts.id, t.id as transaction_id, t.confimed_transaction_id from transition ts "
+                              "JOIN transaction_execute te on te.id = ts.transaction_execute_id "
+                              "JOIN transaction t on te.transaction_id = t.id "
+                              "UNION "
+                              "select ts.id, t.id as transaction_id, t.confimed_transaction_id from transition ts "
+                              "JOIN fee f ON f.id = ts.fee_id "
+                              "JOIN transaction t ON f.transaction_id = t.id ")
+            n = 0
+            data = await cur.fetchall()
+            update_data = []
+
+            for row in data:
+                update_data.append((row["id"], row["transaction_id"], row["confimed_transaction_id"]))
+                n += 1
+                if n % 1000000 == 0:
+                    print(f"{n}/{count} rows processed")
+
+            print("Updating database...")
+            print("1/5")
+            await cur.execute("create temporary table transition_temp (id bigint, transaction_id bigint, confimed_transaction_id bigint) on commit drop")
+            print("2/5")
+            async with cur.copy("copy transition_temp (id, transaction_id, confimed_transaction_id) from stdin") as copy:
+                for row in update_data:
+                    await copy.write_row(row)
+            print("3/5")
+            await cur.execute("create unique index transition_temp_id_uindex on transition_temp (id)")
+            print("4/5")
+            await cur.execute("update transition set transaction_id = m.transaction_id, confimed_transaction_id = m.confimed_transaction_id "
+                              "from transition_temp m where transition.id = m.id")

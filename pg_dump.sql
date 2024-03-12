@@ -1419,6 +1419,8 @@ ALTER SEQUENCE explorer.transaction_id_seq OWNED BY explorer.transaction.id;
 CREATE TABLE explorer.transition (
     id integer NOT NULL,
     transition_id text NOT NULL,
+    transaction_id integer NOT NULL,
+    confirmed_transaction_id integer,
     transaction_execute_id integer,
     fee_id integer,
     program_id text NOT NULL,
@@ -3173,6 +3175,20 @@ CREATE UNIQUE INDEX transition_transition_id_uindex ON explorer.transition USING
 
 
 --
+-- Name: transition_confimed_transaction_id_index; Type: INDEX; Schema: explorer; Owner: -
+--
+
+CREATE INDEX transition_confimed_transaction_id_index ON explorer.transition USING btree (confimed_transaction_id);
+
+
+--
+-- Name: transition_transaction_id_index; Type: INDEX; Schema: explorer; Owner: -
+--
+
+CREATE INDEX transition_transaction_id_index ON explorer.transition USING btree (transaction_id);
+
+
+--
 -- Name: address_transition address_stats_transition_transition_id_fk; Type: FK CONSTRAINT; Schema: explorer; Owner: -
 --
 
@@ -3538,6 +3554,22 @@ ALTER TABLE ONLY explorer.transition_output
 
 ALTER TABLE ONLY explorer.transition
     ADD CONSTRAINT transition_transaction_execute_id_fk FOREIGN KEY (transaction_execute_id) REFERENCES explorer.transaction_execute(id);
+
+
+--
+-- Name: transition transition_transaction_id_fk; Type: FK CONSTRAINT; Schema: explorer; Owner: -
+--
+
+ALTER TABLE ONLY explorer.transition
+    ADD CONSTRAINT transition_transaction_id_fk FOREIGN KEY (transaction_id) REFERENCES explorer.transaction(id);
+
+
+--
+-- Name: transition transition_confirmed_transaction_id_fk; Type: FK CONSTRAINT; Schema: explorer; Owner: -
+--
+
+ALTER TABLE ONLY explorer.transition
+    ADD CONSTRAINT transition_confirmed_transaction_id_fk FOREIGN KEY (confimed_transaction_id) REFERENCES explorer.confirmed_transaction(id);
 
 
 --

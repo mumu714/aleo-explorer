@@ -171,11 +171,22 @@ class DatabaseInsert(DatabaseBase):
                     raise RuntimeError("transition already exists in database")
                 else:
                     return
+            if fee_db_id:
+                await cur.execute(
+                    "SELECT transaction_id FROM fee WHERE id = %s", (fee_db_id,)
+                )
+            elif exe_tx_db_id:
+                await cur.execute(
+                    "SELECT transaction_id FROM transaction_execute WHERE id = %s", (exe_tx_db_id,)
+                )
+            if (res := await cur.fetchone()) is None:
+                raise RuntimeError("transition not exists in database")
+            transaction_id = res["transaction_id"]
             await cur.execute(
-                "INSERT INTO transition (transition_id, transaction_execute_id, fee_id, program_id, "
+                "INSERT INTO transition (transition_id, transaction_id, transaction_execute_id, fee_id, program_id, "
                 "function_name, tpk, tcm, index) "
-                "VALUES (%s, %s, %s, %s, %s, %s, %s, %s) RETURNING id",
-                (str(transition.id), exe_tx_db_id, fee_db_id, str(transition.program_id),
+                "VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s) RETURNING id",
+                (str(transition.id), transaction_id, exe_tx_db_id, fee_db_id, str(transition.program_id),
                  str(transition.function_name), str(transition.tpk), str(transition.tcm), ts_index)
             )
             if (res := await cur.fetchone()) is None:
@@ -554,6 +565,11 @@ class DatabaseInsert(DatabaseBase):
             if confirmed_transaction is not None:
                 await cur.execute(
                     "UPDATE transaction SET confimed_transaction_id = %s WHERE transaction_id = %s",
+                    (confirmed_transaction_db_id, str(transaction.id))
+                )
+                await cur.execute(
+                    "UPDATE transition ts SET confimed_transaction_id = %s "
+                    "FROM transaction tx WHERE tx.id = ts.transaction_id AND tx.transaction_id = %s",
                     (confirmed_transaction_db_id, str(transaction.id))
                 )
                 reject_reasons = cast(list[Optional[str]], reject_reasons)
