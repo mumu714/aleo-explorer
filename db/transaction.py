@@ -49,7 +49,7 @@ class DatabaseTransaction(DatabaseBase):
             async with conn.cursor() as cur:
                 try:
                     await cur.execute(
-                        "SELECT COUNT(*) FROM transition "
+                        "SELECT COUNT(*) FROM transition WHERE confimed_transaction_id IS NOT NULL"
                     )
                     if (res := await cur.fetchone()) is None:
                         return 0
@@ -65,17 +65,8 @@ class DatabaseTransaction(DatabaseBase):
                     await cur.execute(
                         "SELECT b.height, b.timestamp, ts.transition_id, ts.program_id, ts.function_name, ct.type "
                         "FROM transition ts "
-                        "JOIN transaction_execute te on te.id = ts.transaction_execute_id "
-                        "JOIN transaction t on te.transaction_id = t.id "
-                        "JOIN confirmed_transaction ct on t.confimed_transaction_id = ct.id "
+                        "JOIN confirmed_transaction ct on ts.confimed_transaction_id = ct.id "
                         "JOIN block b on ct.block_id = b.id "
-                        "UNION "
-                        "SELECT b.height, b.timestamp, ts.transition_id, ts.program_id, ts.function_name, ct.type "
-                        "FROM transition ts "
-                        "JOIN fee f ON f.id = ts.fee_id "
-                        "JOIN transaction t ON f.transaction_id = t.id "
-                        "JOIN confirmed_transaction ct ON t.confimed_transaction_id = ct.id "
-                        "JOIN block b ON ct.block_id = b.id "
                         "ORDER BY height DESC "
                         "LIMIT %s OFFSET %s",
                         (end - start, start)
@@ -193,20 +184,7 @@ SELECT DISTINCT ts.transition_id,
                 ct.type
 FROM ats
 JOIN transition ts ON ats.transition_id = ts.id
-JOIN transaction_execute te ON te.id = ts.transaction_execute_id
-JOIN transaction tx ON tx.id = te.transaction_id
-JOIN confirmed_transaction ct ON ct.id = tx.confimed_transaction_id
-JOIN block b ON b.id = ct.block_id
-UNION
-SELECT DISTINCT ts.transition_id,
-                b.height,
-                b.timestamp,
-                tx.transaction_id, 
-                ct.type
-FROM ats
-JOIN transition ts ON ats.transition_id = ts.id
-JOIN fee f ON f.id = ts.fee_id
-JOIN transaction tx ON tx.id = f.transaction_id
+JOIN transaction tx ON tx.id = ts.transaction_id
 JOIN confirmed_transaction ct ON ct.id = tx.confimed_transaction_id
 JOIN block b ON b.id = ct.block_id
 ORDER BY height DESC
