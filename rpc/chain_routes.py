@@ -632,10 +632,20 @@ async def transition_route(request: Request):
             if future is not None:
                 if future.program_id == program_id and future.function_name == function_name:
                     self_future = future
+                arguments:list[Any]= []
+                for arg in future.arguments:
+                    if isinstance(arg, FutureArgument):
+                        arguments.append({
+                            "program_id": str(arg.future.program_id),
+                            "function_name": str(arg.future.function_name),
+                            "arguments": [str(i.plaintext) for i in arg.future.arguments]
+                        })
+                    else:
+                        arguments.append(str(arg.plaintext))
                 future = {
                     "program_id": str(future.program_id),
                     "function_name": str(future.function_name),
-                    "arguments": [str(i.plaintext) for i in future.arguments] # type: ignore
+                    "arguments": arguments
                 }
             outputs.append({
                 "type": "Future",
