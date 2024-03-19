@@ -623,7 +623,7 @@ async def address_transaction_route(request: Request):
                                     to_address = str(plaintext.literal.primitive)
                             if isinstance(plaintext, LiteralPlaintext) and plaintext.literal.type == Literal.Type.U64:
                                 credit = format_aleo_credit(plaintext.literal.primitive) # type: ignore
-        state = "pending"
+        state = "Pending"
         if transition_data["type"]:
             if transition_data["type"].startswith("Accepted"):
                 state = "Accepted"
@@ -631,7 +631,7 @@ async def address_transaction_route(request: Request):
                 state = "Rejected"
         data.append({
             "transition_id": transition_data["transition_id"],
-            "height": transition_data["height"] if transition_data["height"] else "pending",
+            "height": transition_data["height"] if transition_data["height"] is not None else "Pending",
             "timestamp": transition_data["timestamp"] if transition_data["timestamp"] else transition_data["first_seen"],
             "transaction_id": transition_data["transaction_id"],
             "from": from_address,
