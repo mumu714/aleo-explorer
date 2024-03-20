@@ -82,8 +82,7 @@ class DatabaseTransaction(DatabaseBase):
                 try:
                     await cur.execute(
                         "SELECT COUNT(DISTINCT at.transition_id) FROM address_transition at "
-                        "JOIN transition t on at.transition_id = t.id "
-                        "WHERE at.address = %s AND t.function_name = %s",(address,function,)
+                        "WHERE at.address = %s AND at.function_name = %s ",(address,function,)
                     )
                     if (res := await cur.fetchone()) is None:
                         return 0
@@ -98,8 +97,7 @@ class DatabaseTransaction(DatabaseBase):
                 try:
                     await cur.execute(
                         "SELECT COUNT(DISTINCT at.transition_id) FROM address_transition at "
-                        "JOIN transition t on at.transition_id = t.id "
-                        "WHERE at.address = %s AND t.function_name = ANY(%s::text[])",
+                        "WHERE at.address = %s AND at.function_name = ANY(%s::text[])",
                         (address,["bond_public", "unbond_public", "claim_unbond_public"],)
                     )
                     if (res := await cur.fetchone()) is None:
@@ -129,21 +127,7 @@ SELECT DISTINCT ts.transition_id,
                 ct.type
 FROM ats
 JOIN transition ts ON ats.transition_id = ts.id
-JOIN transaction_execute te ON te.id = ts.transaction_execute_id
-JOIN transaction tx ON tx.id = te.transaction_id
-LEFT JOIN confirmed_transaction ct ON ct.id = tx.confimed_transaction_id
-LEFT JOIN block b ON b.id = ct.block_id
-UNION
-SELECT DISTINCT ts.transition_id,
-                b.height,
-                b.timestamp,
-                tx.transaction_id, 
-                tx.first_seen, 
-                ct.type
-FROM ats
-JOIN transition ts ON ats.transition_id = ts.id
-JOIN fee f ON f.id = ts.fee_id
-JOIN transaction tx ON tx.id = f.transaction_id
+JOIN transaction tx ON tx.id = ts.transaction_id
 LEFT JOIN confirmed_transaction ct ON ct.id = tx.confimed_transaction_id
 LEFT JOIN block b ON b.id = ct.block_id
 ORDER BY height DESC
@@ -173,8 +157,7 @@ ORDER BY height DESC
 WITH ats AS
     (SELECT DISTINCT at.transition_id
      FROM address_transition at
-     JOIN transition ts ON at.transition_id = ts.id
-     WHERE address = %s AND ts.function_name = %s
+     WHERE address = %s AND function_name = %s
      ORDER BY transition_id DESC
      LIMIT %s OFFSET %s)
 SELECT DISTINCT ts.transition_id,
@@ -185,8 +168,8 @@ SELECT DISTINCT ts.transition_id,
 FROM ats
 JOIN transition ts ON ats.transition_id = ts.id
 JOIN transaction tx ON tx.id = ts.transaction_id
-JOIN confirmed_transaction ct ON ct.id = tx.confimed_transaction_id
-JOIN block b ON b.id = ct.block_id
+LEFT JOIN confirmed_transaction ct ON ct.id = tx.confimed_transaction_id
+LEFT JOIN block b ON b.id = ct.block_id
 ORDER BY height DESC
 """,
                             (address, function, end - start, start)
@@ -213,8 +196,7 @@ ORDER BY height DESC
 WITH ats AS
     (SELECT DISTINCT at.transition_id
      FROM address_transition at
-     JOIN transition ts ON at.transition_id = ts.id
-     WHERE address = %s AND ts.function_name = ANY(%s::text[])
+     WHERE address = %s AND function_name = ANY(%s::text[])
      ORDER BY transition_id DESC
      LIMIT %s OFFSET %s)
 SELECT DISTINCT ts.transition_id,
@@ -224,10 +206,9 @@ SELECT DISTINCT ts.transition_id,
                 ct.type
 FROM ats
 JOIN transition ts ON ats.transition_id = ts.id
-JOIN transaction_execute te ON te.id = ts.transaction_execute_id
-JOIN transaction tx ON tx.id = te.transaction_id
-JOIN confirmed_transaction ct ON ct.id = tx.confimed_transaction_id
-JOIN block b ON b.id = ct.block_id
+JOIN transaction tx ON tx.id = ts.transaction_id
+LEFT JOIN confirmed_transaction ct ON ct.id = tx.confimed_transaction_id
+LEFT JOIN block b ON b.id = ct.block_id
 ORDER BY height DESC
 """,
                         (address, ["bond_public", "unbond_public", "claim_unbond_public"], end - start, start)
