@@ -10,6 +10,7 @@ from starlette.responses import JSONResponse
 from aleo_types import PlaintextValue, LiteralPlaintext, Literal, \
     Address, Value, StructPlaintext, FutureTransitionOutput, PlaintextArgument
 from db import Database
+from .classes import UIAddress
 from .utils import out_of_sync_check, get_address_type
 from .format import *
 from aleo_types import *
@@ -491,8 +492,9 @@ async def address_route(request: Request):
     network_1hour_speed = await db.get_network_speed(3600)
     network_1hour_reward = await db.get_network_reward(3600)
     address_1hour_reward = await db.get_address_reward(address, 3600)
+    uiaddress = await UIAddress(address).resolve(db)
     ctx = {
-        "address": address,
+        "address": uiaddress.__dict__,
         "address_trunc": address[:14] + "..." + address[-6:],
         "address_type": address_type,
         "total_rewards": int(total_rewards),
