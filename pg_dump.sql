@@ -2574,6 +2574,20 @@ CREATE INDEX address_transition_transition_id_index ON explorer.address_transiti
 CREATE INDEX address_transition_function_name_index ON explorer.address_transition USING btree (function_name);
 
 
+--
+-- Name: address_transition_function_name_address_index; Type: INDEX; Schema: explorer; Owner: -
+--
+
+CREATE INDEX address_transition_function_name_address_index ON explorer.address_transition USING btree (address, function_name);
+
+
+--
+-- Name: address_transition_transition_id_address_index; Type: INDEX; Schema: explorer; Owner: -
+--
+
+CREATE INDEX address_transition_transition_id_address_index ON explorer.address_transition USING btree (address, transition_id);
+
+
 -- Name: address_stake_reward_address_index; Type: INDEX; Schema: explorer; Owner: -
 --
 
