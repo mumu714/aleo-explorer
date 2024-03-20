@@ -164,6 +164,7 @@ SELECT DISTINCT ts.transition_id,
                 b.height,
                 b.timestamp,
                 tx.transaction_id, 
+                tx.first_seen,
                 ct.type
 FROM ats
 JOIN transition ts ON ats.transition_id = ts.id
@@ -180,7 +181,8 @@ ORDER BY height DESC
                             "height": x["height"],
                             "timestamp": x["timestamp"],
                             "transaction_id": x["transaction_id"],
-                            "type": x["type"]
+                            "type": x["type"],
+                            "first_seen": x["first_seen"]
                         }
                     return list(map(lambda x: transform(x), await cur.fetchall()))
                 except Exception as e:
@@ -203,6 +205,7 @@ SELECT DISTINCT ts.transition_id,
                 b.height,
                 b.timestamp,
                 tx.transaction_id, 
+                tx.first_seen,
                 ct.type
 FROM ats
 JOIN transition ts ON ats.transition_id = ts.id
@@ -219,7 +222,8 @@ ORDER BY height DESC
                             "height": x["height"],
                             "timestamp": x["timestamp"],
                             "transaction_id": x["transaction_id"],
-                            "type": x["type"]
+                            "type": x["type"],
+                            "first_seen": x["first_seen"]
                         }
                     return list(map(lambda x: transform(x), await cur.fetchall()))
                 except Exception as e:

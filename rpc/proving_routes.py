@@ -704,10 +704,11 @@ async def address_function_transaction_route(request: Request):
                             if isinstance(plaintext, LiteralPlaintext) and plaintext.literal.type == Literal.Type.U64:
                                 credit = format_aleo_credit(plaintext.literal.primitive) # type: ignore
         state = "Pending"
-        if transition_data["type"].startswith("Accepted"):
-            state = "Accepted"
-        elif transition_data["type"].startswith("Rejected"):
-            state = "Rejected"
+        if transition_data["type"]:
+            if transition_data["type"].startswith("Accepted"):
+                state = "Accepted"
+            elif transition_data["type"].startswith("Rejected"):
+                state = "Rejected"
         data.append({
             "transition_id": transition_data["transition_id"],
             "height": transition_data["height"] if transition_data["height"] is not None else "Pending",
@@ -767,10 +768,11 @@ async def address_bonds_transaction_route(request: Request):
         if transition.function_name == "unbond_public":
             validator = await db.get_unbond_validator_by_address(address, transition_data["height"])
         state = "Pending"
-        if transition_data["type"].startswith("Accepted"):
-            state = "Accepted"
-        elif transition_data["type"].startswith("Rejected"):
-            state = "Rejected"
+        if transition_data["type"]:
+            if transition_data["type"].startswith("Accepted"):
+                state = "Accepted"
+            elif transition_data["type"].startswith("Rejected"):
+                state = "Rejected"
         data.append({
             "transition_id": transition_data["transition_id"],
             "height": transition_data["height"] if transition_data["height"] is not None else "Pending",
@@ -826,10 +828,11 @@ async def address_transfer_transaction_route(request: Request):
         transfer_to = str(Database.get_primitive_from_argument_unchecked(future.arguments[1]))
         amount = int(cast(int, Database.get_primitive_from_argument_unchecked(future.arguments[2])))
         state = "Pending"
-        if transition_data["type"].startswith("Accepted"):
-            state = "Accepted"
-        elif transition_data["type"].startswith("Rejected"):
-            state = "Rejected"
+        if transition_data["type"]:
+            if transition_data["type"].startswith("Accepted"):
+                state = "Accepted"
+            elif transition_data["type"].startswith("Rejected"):
+                state = "Rejected"
         data.append({
             "transition_id": transition_data["transition_id"],
             "height": transition_data["height"] if transition_data["height"] is not None else "Pending",
