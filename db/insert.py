@@ -93,6 +93,39 @@ class DatabaseInsert(DatabaseBase):
                         (address, functions, functions)
                     )
 
+    @staticmethod
+    async def _cleanup_unconfirmed_address_transition(conn: psycopg.AsyncConnection[dict[str, Any]], id: Int):
+        async with conn.cursor() as cur:
+            await cur.execute(
+                "SELECT at.address, at.function_name, COUNT(DISTINCT at.transition_id) AS function_count "
+                "FROM address_transition at JOIN transition ts ON at.transition_id = ts.id "
+                "WHERE ts.transaction_id = %s GROUP BY at.address, at.function_name",(id,)
+            )
+            for row_add in await cur.fetchall():
+                if "fee" in row_add["function_name"]:
+                    await cur.execute(
+                        "INSERT INTO address (address, fee_ts_num) VALUES (%s, %s)"
+                        "ON CONFLICT (address) DO UPDATE SET fee_ts_num = address.fee_ts_num - %s "
+                        "RETURNING functions, fee_ts_num",
+                        (row_add["address"], row_add["function_count"], row_add["function_count"])
+                    )
+                else:
+                    await cur.execute(
+                            "INSERT INTO address (address, execution_ts_num) VALUES (%s, %s)"
+                            "ON CONFLICT (address) DO UPDATE SET execution_ts_num = address.execution_ts_num - %s, "
+                            "RETURNING functions, execution_ts_num",
+                            (row_add["address"], row_add["function_count"], row_add["function_count"])
+                    )
+                if await cur.fetchone() is None:
+                    raise RuntimeError("failed to update row into database")
+            await cur.execute(
+                "SELECT id FROM transition WHERE transaction_id = %s",(id,)
+            )
+            for row in await cur.fetchall():
+                await cur.execute(
+                    "DELETE FROM address_transition WHERE transition_id = %s",(row["id"],)
+                )
+
 
     @staticmethod
     async def _insert_future(conn: psycopg.AsyncConnection[DictRow], future: Future,
@@ -565,6 +598,7 @@ class DatabaseInsert(DatabaseBase):
                             "DELETE FROM transaction WHERE id = %s",
                             (row["id"],)
                         )
+                        await DatabaseInsert._cleanup_unconfirmed_address_transition(conn, row["id"])
 
                 if isinstance(transaction, FeeTransaction): # check probable rejected unconfirmed transaction
                     if confirmed_transaction is None:
@@ -1777,8 +1811,14 @@ class DatabaseInsert(DatabaseBase):
         async with self.pool.connection() as conn:
             async with conn.cursor() as cur:
                 await cur.execute(
-                    "DELETE FROM transaction WHERE first_seen < %s AND confirmed_transaction_id IS NULL",
-                    (int(time.time()) - 86400 * 7,)
+                    "SELECT id FROM transaction WHERE first_seen < %s AND confimed_transaction_id IS NULL",
+                    (int(time.time()) - 86400 * 3,)
+                )
+                for row in await cur.fetchall():
+                    await DatabaseInsert._cleanup_unconfirmed_address_transition(conn, row["id"])
+                await cur.execute(
+                    "DELETE FROM transaction WHERE first_seen < %s AND confimed_transaction_id IS NULL",
+                    (int(time.time()) - 86400 * 3,)
                 )
 
     async def save_block(self, block: Block):
