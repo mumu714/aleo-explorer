@@ -73,17 +73,17 @@ class DatabaseInsert(DatabaseBase):
             for row_add in await cur.fetchall():
                 if "fee" in row_add["function_name"]:
                     await cur.execute(
-                        "INSERT INTO address (address, fee_ts_num) VALUES (%s, %s)"
+                        "INSERT INTO address (address, fee_ts_num) VALUES (%s, %s) "
                         "ON CONFLICT (address) DO UPDATE SET fee_ts_num = address.fee_ts_num - %s "
                         "RETURNING functions, fee_ts_num",
                         (row_add["address"], row_add["function_count"], row_add["function_count"])
                     )
                 else:
                     await cur.execute(
-                            "INSERT INTO address (address, execution_ts_num) VALUES (%s, %s)"
-                            "ON CONFLICT (address) DO UPDATE SET execution_ts_num = address.execution_ts_num - %s, "
-                            "RETURNING functions, execution_ts_num",
-                            (row_add["address"], row_add["function_count"], row_add["function_count"])
+                        "INSERT INTO address (address, execution_ts_num) VALUES (%s, %s) "
+                        "ON CONFLICT (address) DO UPDATE SET execution_ts_num = address.execution_ts_num - %s "
+                        "RETURNING functions, execution_ts_num",
+                        (row_add["address"], row_add["function_count"], row_add["function_count"])
                     )
                 if await cur.fetchone() is None:
                     raise RuntimeError("failed to update row into database")
@@ -1469,6 +1469,10 @@ class DatabaseInsert(DatabaseBase):
                 )
                 for row in await cur.fetchall():
                     await DatabaseInsert._cleanup_unconfirmed_address_transition(conn, row["id"])
+                    await cur.execute(
+                        "DELETE FROM transition WHERE transaction_id = %s",
+                        (row["id"],)
+                    )
                 await cur.execute(
                     "DELETE FROM transaction WHERE first_seen < %s AND confimed_transaction_id IS NULL",
                     (int(time.time()) - 86400 * 3,)

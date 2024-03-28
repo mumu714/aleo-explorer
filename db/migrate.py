@@ -34,7 +34,7 @@ class DatabaseMigrate(DatabaseBase):
             (16, self.migrate_16_add_rejected_deploy_support),
             (17, self.migrate_17_inconsistent_database_workaround),
             (18, self.migrate_18_add_address_transition_function_name),
-            (19, self.migrate_19_add_address_transition_function_name),
+            (19, self.migrate_19_add_transition_more_info),
         ]
         async with self.pool.connection() as conn:
             async with conn.cursor() as cur:
@@ -214,7 +214,6 @@ WHERE tables.oid = pg_trigger.tgrelid
     async def migrate_18_add_address_transition_function_name(conn: psycopg.AsyncConnection[dict[str, Any]]):
         print("WARNING: This migration needs 10+ GBs of RAM")
         print("Long running migration, please wait")
-        await conn.execute("alter table address_transition add function_name text")
         async with conn.cursor() as cur:
             await cur.execute("select count(*) from address_transition")
             count = (await cur.fetchone())["count"]
@@ -243,11 +242,9 @@ WHERE tables.oid = pg_trigger.tgrelid
             await cur.execute("update address_transition set function_name = m.function_name from address_transition_temp m where address_transition.transition_id = m.id")
 
     @staticmethod
-    async def migrate_19_add_address_transition_function_name(conn: psycopg.AsyncConnection[dict[str, Any]]):
+    async def migrate_19_add_transition_more_info(conn: psycopg.AsyncConnection[dict[str, Any]]):
         print("WARNING: This migration needs 10+ GBs of RAM")
         print("Long running migration, please wait")
-        await conn.execute("alter table transition add transaction_id integer")
-        await conn.execute("alter table transition add confimed_transaction_id integer")
         async with conn.cursor() as cur:
             await cur.execute("select count(*) from transition")
             count = (await cur.fetchone())["count"]
