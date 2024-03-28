@@ -135,6 +135,16 @@ class DatabaseUtil(DatabaseBase):
                             for ct in block.transactions:
                                 t = ct.transaction
                                 # revert to unconfirmed transactions
+                                await cur.execute(
+                                        "SELECT id FROM transaction WHERE transaction_id = %s",
+                                        (str(t.id),)
+                                )
+                                if (res := await cur.fetchone()) is None:
+                                        raise RuntimeError(f"missing transaction: {t.id}")
+                                await cur.execute(
+                                        "UPDATE transition SET confimed_transaction_id = NULL, transaction_id = NULL WHERE transaction_id = %s",
+                                        (res["id"],)
+                                )
                                 if isinstance(ct, (RejectedDeploy, RejectedExecute)):
                                     await cur.execute(
                                         "SELECT original_transaction_id FROM transaction WHERE transaction_id = %s",
@@ -217,6 +227,19 @@ class DatabaseUtil(DatabaseBase):
                                     "UPDATE leaderboard SET total_reward = total_reward - %s WHERE address = %s",
                                     (reward, address)
                                 )
+                            await cur.execute(
+                                "SELECT dv.id FROM dag_vertex dv "
+                                "JOIN authority au on dv.authority_id = au.id "
+                                "JOIN block b on b.id = au.block_id "
+                                "WHERE b.height = %s ORDER BY dv.index",
+                                (block.height, )
+                            )
+                            dag_vertices = await cur.fetchall()
+                            for dag_vertex in dag_vertices:
+                                await cur.execute(
+                                    "DELETE FROM dag_vertex_previous_id WHERE vertex_id = %s ",
+                                    (dag_vertex["id"],)
+                                )
                         await cur.execute(
                             "DELETE FROM block WHERE height > %s",
                             (last_backup_height,)
@@ -230,7 +253,7 @@ class DatabaseUtil(DatabaseBase):
                             backup_key = f"{redis_key}:history:{last_backup_height}"
                             await self.redis.copy(backup_key, redis_key, replace=True) # type: ignore[arg-type]
                             await self.redis.persist(redis_key)
-                            await self.redis.expire(backup_key, 259200)
+                            await self.redis.persist(backup_key)
 
                             # remove rollback backup as well
                             _, keys = await self.redis.scan(0, f"{redis_key}:rollback_backup:*", 100)

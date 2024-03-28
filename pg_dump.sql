@@ -1773,8 +1773,8 @@ ALTER SEQUENCE explorer.transaction_id_seq OWNED BY explorer.transaction.id;
 CREATE TABLE explorer.transition (
     id integer NOT NULL,
     transition_id text NOT NULL,
-    transaction_id integer NOT NULL,
-    confirmed_transaction_id integer,
+    transaction_id integer,
+    confimed_transaction_id integer,
     transaction_execute_id integer,
     fee_id integer,
     program_id text NOT NULL,
