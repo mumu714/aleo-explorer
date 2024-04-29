@@ -1998,7 +1998,7 @@ class DatabaseInsert(DatabaseBase):
                     puzzle_rewards = sum(block["coinbase_reward"] // 2 for block in all_blocks)
                     block_reward = sum(block["block_reward"] for block in all_blocks)
                     hashrate_24h = await DatabaseAddress.get_network_speed(self, 86400)
-                    puzzle_rewards_1M = (puzzle_rewards / hashrate_24h) * 1_000_000
+                    puzzle_rewards_1M = (float(puzzle_rewards) / hashrate_24h) * 1_000_000 if hashrate_24h else 0
                     await self.redis.set("24H_reward:puzzle", int(puzzle_rewards))
                     await self.redis.set("24H_reward:block", int(block_reward))
                     await self.redis.set("24H_reward:1M_puzzle", int(puzzle_rewards_1M))
