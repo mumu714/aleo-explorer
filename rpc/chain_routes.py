@@ -7,6 +7,7 @@ from starlette.requests import Request
 from starlette.responses import RedirectResponse
 from starlette.responses import JSONResponse
 
+import util.arc0137
 from aleo_types import u32, Transition, ExecuteTransaction, PrivateTransitionInput, \
     RecordTransitionInput, TransitionOutput, RecordTransitionOutput, DeployTransaction, PublicTransitionInput, \
     PublicTransitionOutput, PrivateTransitionOutput, ExternalRecordTransitionInput, \
@@ -813,6 +814,18 @@ async def search_route(request: Request):
             "type": "address",
             "addresses": addresses,
             "too_many": too_many,
+        }
+        return JSONResponse(ctx)
+    elif query.endswith(".ans"):
+        address = await util.arc0137.get_address_from_domain(db, query)
+        if address is None:
+            raise HTTPException(status_code=404, detail="ANS domain not found")
+        if address == "":
+            raise HTTPException(status_code=404, detail="ANS domain is private")
+        ctx = {
+            "query": query,
+            "type": "address",
+            "address": address
         }
         return JSONResponse(ctx)
     else:
