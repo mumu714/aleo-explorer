@@ -187,6 +187,7 @@ CREATE TABLE explorer.address_15min_hashrate (
 CREATE TABLE explorer.address_transition (
     address text NOT NULL,
     transition_id integer NOT NULL,
+    program_id text NOT NULL,
     function_name text NOT NULL
 );
 
@@ -2575,10 +2576,31 @@ CREATE INDEX address_transition_function_name_index ON explorer.address_transiti
 
 
 --
+-- Name: address_transition_program_id_index; Type: INDEX; Schema: explorer; Owner: -
+--
+
+CREATE INDEX address_transition_program_id_index ON explorer.address_transition USING btree (program_id);
+
+
+--
 -- Name: address_transition_function_name_address_index; Type: INDEX; Schema: explorer; Owner: -
 --
 
 CREATE INDEX address_transition_function_name_address_index ON explorer.address_transition USING btree (address, function_name);
+
+
+--
+-- Name: address_transition_program_id_address_index; Type: INDEX; Schema: explorer; Owner: -
+--
+
+CREATE INDEX address_transition_program_id_address_index ON explorer.address_transition USING btree (address, program_id);
+
+
+--
+-- Name: address_transition_program_id_function_name_index; Type: INDEX; Schema: explorer; Owner: -
+--
+
+CREATE INDEX address_transition_program_id_function_name_index ON explorer.address_transition USING btree (program_id, function_name);
 
 
 --
