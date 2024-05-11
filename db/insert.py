@@ -140,7 +140,7 @@ class DatabaseInsert(DatabaseBase):
                     raise RuntimeError("failed to insert row into database")
                 future_db_id = res["id"]
                 await cur.execute(
-                    "SELECT t.id, t.function_name FROM transition t "
+                    "SELECT t.id, t.function_name, t.program_id FROM transition t "
                     "JOIN transition_output o on t.id = o.transition_id "
                     "JOIN transition_output_future tof on o.id = tof.transition_output_id "
                     "WHERE tof.id = %s",
@@ -150,6 +150,7 @@ class DatabaseInsert(DatabaseBase):
                     raise RuntimeError("database inconsistent")
                 transition_db_id = res["id"]
                 function_name = res["function_name"]
+                program_id = res["program_id"]
             elif argument_db_id:
                 await cur.execute(
                     "INSERT INTO future (type, future_argument_id, program_id, function_name) "
@@ -173,7 +174,7 @@ class DatabaseInsert(DatabaseBase):
                         break
                     argument_db_id = res["future_argument_id"]
                 await cur.execute(
-                    "SELECT t.id, t.function_name FROM transition t "
+                    "SELECT t.id, t.function_name, t.program_id FROM transition t "
                     "JOIN transition_output o on t.id = o.transition_id "
                     "JOIN transition_output_future tof on o.id = tof.transition_output_id "
                     "WHERE tof.id = %s",
@@ -183,6 +184,7 @@ class DatabaseInsert(DatabaseBase):
                     raise RuntimeError("database inconsistent")
                 transition_db_id = res["id"]
                 function_name = res["function_name"]
+                program_id = res["program_id"]
             else:
                 raise ValueError("transition_output_db_id or argument_db_id must be set")
             for argument in future.arguments:
@@ -195,16 +197,16 @@ class DatabaseInsert(DatabaseBase):
                     if isinstance(plaintext, LiteralPlaintext) and plaintext.literal.type == Literal.Type.Address:
                         address = str(plaintext.literal.primitive)
                         await cur.execute(
-                            "INSERT INTO address_transition (address, transition_id, function_name) VALUES (%s, %s, %s)",
-                            (address, transition_db_id, function_name)
+                            "INSERT INTO address_transition (address, transition_id, program_id, function_name) VALUES (%s, %s, %s, %s)",
+                            (address, transition_db_id, program_id, function_name)
                         )
                         address_list.append(address)
                     elif isinstance(plaintext, StructPlaintext):
                         addresses = DatabaseUtil.get_addresses_from_struct(plaintext)
                         for address in addresses:
                             await cur.execute(
-                                "INSERT INTO address_transition (address, transition_id, function_name) VALUES (%s, %s, %s)",
-                                (address, transition_db_id, function_name)
+                                "INSERT INTO address_transition (address, transition_id, program_id, function_name) VALUES (%s, %s, %s, %s)",
+                                (address, transition_db_id, program_id, function_name)
                             )
                             address_list.append(address)
                 elif isinstance(argument, FutureArgument):
@@ -356,16 +358,16 @@ class DatabaseInsert(DatabaseBase):
                         if isinstance(plaintext, LiteralPlaintext) and plaintext.literal.type == Literal.Type.Address:
                             address = str(plaintext.literal.primitive)
                             await cur.execute(
-                                "INSERT INTO address_transition (address, transition_id, function_name) VALUES (%s, %s, %s)",
-                                (address, transition_db_id, str(transition.function_name))
+                                "INSERT INTO address_transition (address, transition_id, program_id, function_name) VALUES (%s, %s, %s, %s)",
+                                (address, transition_db_id, str(transition.program_id), str(transition.function_name))
                             )
                             address_list.append(address)
                         elif isinstance(plaintext, StructPlaintext):
                             addresses = DatabaseUtil.get_addresses_from_struct(plaintext)
                             for address in addresses:
                                 await cur.execute(
-                                    "INSERT INTO address_transition (address, transition_id, function_name) VALUES (%s, %s, %s)",
-                                    (address, transition_db_id, str(transition.function_name))
+                                    "INSERT INTO address_transition (address, transition_id, program_id, function_name) VALUES (%s, %s, %s, %s)",
+                                    (address, transition_db_id, str(transition.program_id), str(transition.function_name))
                                 )
                                 address_list.append(address)
                 elif isinstance(transition_input, PrivateTransitionInput):
