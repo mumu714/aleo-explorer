@@ -694,7 +694,7 @@ class DatabaseInsert(DatabaseBase):
                     (confirmed_transaction_db_id, str(transaction.id))
                 )
                 await cur.execute(
-                    "UPDATE transition ts SET confimed_transaction_id = %s "
+                    "UPDATE transition ts SET confirmed_transaction_id = %s "
                     "FROM transaction tx WHERE tx.id = ts.transaction_id AND tx.transaction_id = %s",
                     (confirmed_transaction_db_id, str(transaction.id))
                 )
@@ -1452,27 +1452,24 @@ class DatabaseInsert(DatabaseBase):
                                             validators.add(cached_compute_key_to_address(signature.compute_key))
                                         validators.add(str(certificate.batch_header.author))
 
-                            for validator in validators:
-                                validators_copy_data.append((block_db_id, validator))
-                                        # await cur.execute(
-                                        #     "INSERT INTO dag_vertex (authority_id, round, batch_certificate_id, batch_id, "
-                                        #     "author, timestamp, author_signature, index) "
-                                        #     "VALUES (%s, %s, %s, %s, %s, %s, %s, %s) RETURNING id",
-                                        #     (authority_db_id, round_, str(certificate.certificate_id), str(certificate.batch_header.batch_id),
-                                        #      str(certificate.batch_header.author), certificate.batch_header.timestamp,
-                                        #      str(certificate.batch_header.signature), index)
-                                        # )
-                                    # if (res := await cur.fetchone()) is None:
-                                    #     raise RuntimeError("failed to insert row into database")
-                                    # vertex_db_id = res["id"]
+                                    await cur.execute(
+                                        "INSERT INTO dag_vertex (authority_id, round, batch_id, "
+                                        "author, timestamp, author_signature, index, committee_id) "
+                                        "VALUES (%s, %s, %s, %s, %s, %s, %s, %s) RETURNING id",
+                                        (authority_db_id, round_, str(certificate.batch_header.batch_id),
+                                            str(certificate.batch_header.author), certificate.batch_header.timestamp,
+                                            str(certificate.batch_header.signature), index, str(certificate.batch_header.committee_id))
+                                    )
+                                    if (res := await cur.fetchone()) is None:
+                                        raise RuntimeError("failed to insert row into database")
+                                    vertex_db_id = res["id"]
 
-
-                                        for sig_index, signature in enumerate(certificate.signatures):
-                                            await cur.execute(
-                                                "INSERT INTO dag_vertex_signature (vertex_id, signature, index) "
-                                                "VALUES (%s, %s, %s)",
-                                                (vertex_db_id, str(signature), sig_index)
-                                            )
+                                    for sig_index, signature in enumerate(certificate.signatures):
+                                        await cur.execute(
+                                            "INSERT INTO dag_vertex_signature (vertex_id, signature, index) "
+                                            "VALUES (%s, %s, %s)",
+                                            (vertex_db_id, str(signature), sig_index)
+                                        )
 
                                     prev_cert_ids = certificate.batch_header.previous_certificate_ids
                                     if prev_cert_ids:
@@ -1481,35 +1478,6 @@ class DatabaseInsert(DatabaseBase):
                                                 "VALUES (%s, %s)",
                                                 (vertex_db_id, list(map(str, prev_cert_ids)))
                                             )
-                                    # await cur.execute(
-                                    #     "SELECT v.id, batch_certificate_id FROM dag_vertex v "
-                                    #     "JOIN UNNEST(%s::text[]) WITH ORDINALITY c(id, ord) ON v.batch_certificate_id = c.id "
-                                    #     "ORDER BY ord",
-                                    #     (list(map(str, prev_cert_ids)),)
-                                    # )
-                                    # res1 = await cur.fetchall()
-                                    # res2: list[Any] = []
-                                    # # temp allow
-                                    # if len(res1) != len(prev_cert_ids):
-                                    #     await cur.execute(
-                                    #         "SELECT v.id, batch_id FROM dag_vertex v "
-                                    #         "JOIN UNNEST(%s::text[]) WITH ORDINALITY c(id, ord) ON v.batch_id = c.id "
-                                    #         "ORDER BY ord",
-                                    #         (list(map(str, prev_cert_ids)),)
-                                    #     )
-                                    #     res2 = await cur.fetchall()
-                                    #     if len(res1) + len(res2) != len(prev_cert_ids):
-                                    #         raise RuntimeError("dag referenced unknown previous certificate")
-                                    # prev_vertex_db_ids = {x["batch_certificate_id"]: x["id"] for x in res1}
-                                    # if res2:
-                                    #     prev_vertex_db_ids.update({x["batch_id"]: x["id"] for x in res2})
-                                    # adj_copy_data: list[tuple[int, int, int]] = []
-                                    # for prev_index, prev_cert_id in enumerate(prev_cert_ids):
-                                    #     if str(prev_cert_id) in prev_vertex_db_ids:
-                                    #         adj_copy_data.append((vertex_db_id, prev_vertex_db_ids[str(prev_cert_id)], prev_index))
-                                    # async with cur.copy("COPY dag_vertex_adjacency (vertex_id, previous_vertex_id, index) FROM STDIN") as copy:
-                                    #     for row in adj_copy_data:
-                                    #         await copy.write_row(row)
 
                                     tid_copy_data: list[tuple[int, str, int, Optional[str], Optional[str]]] = []
                                     for tid_index, transmission_id in enumerate(certificate.batch_header.transmission_ids):
@@ -1526,20 +1494,21 @@ class DatabaseInsert(DatabaseBase):
                                     async with cur.copy("COPY dag_vertex_transmission_id (vertex_id, type, index, commitment, transaction_id) FROM STDIN") as copy:
                                         for row in tid_copy_data:
                                             await copy.write_row(row)
+                            for validator in validators:
+                                validators_copy_data.append((block_db_id, validator))
                         else:
                             raise NotImplementedError
-                        if subdag_copy_data:
-                            async with cur.copy(
-                                "COPY dag_vertex (authority_id, round, batch_id, "
-                                "author, timestamp, author_signature, index, committee_id) FROM STDIN"
-                            ) as copy:
-                                for row in subdag_copy_data:
-                                    await copy.write_row(row)
+                        # if subdag_copy_data:
+                        #     async with cur.copy(
+                        #         "COPY dag_vertex (authority_id, round, batch_id, "
+                        #         "author, timestamp, author_signature, index, committee_id) FROM STDIN"
+                        #     ) as copy:
+                        #         for row in subdag_copy_data:
+                        #             await copy.write_row(row)
                         if validators_copy_data:
                             async with cur.copy("COPY block_validator (block_id, validator) FROM STDIN") as copy:
                                 for row in validators_copy_data:
                                     await copy.write_row(row)
-
                         ignore_deploy_txids: list[str] = []
                         program_name_seen: dict[str, str] = {}
                         for confirmed_transaction in block.transactions:
@@ -1815,7 +1784,7 @@ class DatabaseInsert(DatabaseBase):
         async with self.pool.connection() as conn:
             async with conn.cursor() as cur:
                 await cur.execute(
-                    "SELECT id FROM transaction WHERE first_seen < %s AND confimed_transaction_id IS NULL",
+                    "SELECT id FROM transaction WHERE first_seen < %s AND confirmed_transaction_id IS NULL",
                     (int(time.time()) - 86400 * 3,)
                 )
                 for row in await cur.fetchall():
@@ -1825,7 +1794,7 @@ class DatabaseInsert(DatabaseBase):
                         (row["id"],)
                     )
                 await cur.execute(
-                    "DELETE FROM transaction WHERE first_seen < %s AND confimed_transaction_id IS NULL",
+                    "DELETE FROM transaction WHERE first_seen < %s AND confirmed_transaction_id IS NULL",
                     (int(time.time()) - 86400 * 3,)
                 )
 
@@ -1885,9 +1854,9 @@ class DatabaseInsert(DatabaseBase):
                 interval = 900
                 try:
                     await cur.execute(
-                        "SELECT ps.address FROM prover_solution ps "
-                        "JOIN coinbase_solution cs ON ps.coinbase_solution_id = cs.id "
-                        "JOIN block b ON cs.block_id = b.id "
+                        "SELECT ps.address FROM solution s "
+                        "JOIN puzzle_solution ps ON ps.id = s.puzzle_solution_id "
+                        "JOIN block b ON b.id = ps.block_id "
                         "WHERE timestamp > %s",
                         (now - interval,)
                     )
@@ -1965,9 +1934,9 @@ class DatabaseInsert(DatabaseBase):
                     res = await cur.fetchall()
                     for hashrate_data in res:
                         await cur.execute(
-                            "SELECT b.height FROM prover_solution ps "
-                            "JOIN coinbase_solution cs ON ps.coinbase_solution_id = cs.id "
-                            "JOIN block b ON cs.block_id = b.id "
+                            "SELECT b.height FROM solution s "
+                            "JOIN puzzle_solution ps ON ps.id = s.puzzle_solution_id "
+                            "JOIN block b ON b.id = ps.block_id "
                             "WHERE timestamp > %s AND timestamp < %s",
                             (hashrate_data["timestamp"] - 900,hashrate_data["timestamp"])
                         )

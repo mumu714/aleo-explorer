@@ -17,7 +17,7 @@ class DatabaseTransaction(DatabaseBase):
             async with conn.cursor() as cur:
                 try:
                     await cur.execute(
-                        "SELECT COUNT(*) FROM transaction WHERE confimed_transaction_id IS not NULL"
+                        "SELECT COUNT(*) FROM transaction WHERE confirmed_transaction_id IS not NULL"
                     )
                     if (res := await cur.fetchone()) is None:
                         return 0
@@ -31,10 +31,10 @@ class DatabaseTransaction(DatabaseBase):
             async with conn.cursor() as cur:
                 try:
                     await cur.execute(
-                        "SELECT t.transaction_id, t.confimed_transaction_id, b.height, ct.type, b.timestamp "
+                        "SELECT t.transaction_id, t.confirmed_transaction_id, b.height, ct.type, b.timestamp "
                         "FROM block b "
                         "JOIN confirmed_transaction ct ON b.id = ct.block_id "
-                        "JOIN transaction t ON ct.id = t.confimed_transaction_id "
+                        "JOIN transaction t ON ct.id = t.confirmed_transaction_id "
                         "ORDER BY ct.id DESC "
                         "LIMIT %s OFFSET %s",
                         (end - start, start)
@@ -49,7 +49,7 @@ class DatabaseTransaction(DatabaseBase):
             async with conn.cursor() as cur:
                 try:
                     await cur.execute(
-                        "SELECT COUNT(*) FROM transition WHERE confimed_transaction_id IS NOT NULL"
+                        "SELECT COUNT(*) FROM transition WHERE confirmed_transaction_id IS NOT NULL"
                     )
                     if (res := await cur.fetchone()) is None:
                         return 0
@@ -65,7 +65,7 @@ class DatabaseTransaction(DatabaseBase):
                     await cur.execute(
                         "SELECT b.height, b.timestamp, ts.transition_id, ts.program_id, ts.function_name, ct.type "
                         "FROM transition ts "
-                        "JOIN confirmed_transaction ct on ts.confimed_transaction_id = ct.id "
+                        "JOIN confirmed_transaction ct on ts.confirmed_transaction_id = ct.id "
                         "JOIN block b on ct.block_id = b.id "
                         "ORDER BY height DESC "
                         "LIMIT %s OFFSET %s",
@@ -143,7 +143,7 @@ SELECT DISTINCT ts.transition_id,
 FROM ats
 JOIN transition ts ON ats.transition_id = ts.id
 JOIN transaction tx ON tx.id = ts.transaction_id
-LEFT JOIN confirmed_transaction ct ON ct.id = tx.confimed_transaction_id
+LEFT JOIN confirmed_transaction ct ON ct.id = tx.confirmed_transaction_id
 LEFT JOIN block b ON b.id = ct.block_id
 ORDER BY height DESC
 """,
@@ -184,7 +184,7 @@ SELECT DISTINCT ts.transition_id,
 FROM ats
 JOIN transition ts ON ats.transition_id = ts.id
 JOIN transaction tx ON tx.id = ts.transaction_id
-LEFT JOIN confirmed_transaction ct ON ct.id = tx.confimed_transaction_id
+LEFT JOIN confirmed_transaction ct ON ct.id = tx.confirmed_transaction_id
 LEFT JOIN block b ON b.id = ct.block_id
 ORDER BY height DESC
 """,
@@ -225,7 +225,7 @@ SELECT DISTINCT ts.transition_id,
 FROM ats
 JOIN transition ts ON ats.transition_id = ts.id
 JOIN transaction tx ON tx.id = ts.transaction_id
-LEFT JOIN confirmed_transaction ct ON ct.id = tx.confimed_transaction_id
+LEFT JOIN confirmed_transaction ct ON ct.id = tx.confirmed_transaction_id
 LEFT JOIN block b ON b.id = ct.block_id
 ORDER BY height DESC
 """,
@@ -266,7 +266,7 @@ SELECT DISTINCT ts.transition_id,
 FROM ats
 JOIN transition ts ON ats.transition_id = ts.id
 JOIN transaction tx ON tx.id = ts.transaction_id
-LEFT JOIN confirmed_transaction ct ON ct.id = tx.confimed_transaction_id
+LEFT JOIN confirmed_transaction ct ON ct.id = tx.confirmed_transaction_id
 LEFT JOIN block b ON b.id = ct.block_id
 ORDER BY height DESC
 """,
@@ -294,7 +294,7 @@ ORDER BY height DESC
                         "SELECT t2.transaction_id, b.height FROM transition t "
                         "JOIN transaction_execute te on te.id = t.transaction_execute_id "
                         "JOIN transaction t2 on t2.id = te.transaction_id "
-                        "JOIN confirmed_transaction ct on ct.id = t2.confimed_transaction_id "
+                        "JOIN confirmed_transaction ct on ct.id = t2.confirmed_transaction_id "
                         "JOIN block b on b.id = ct.block_id "
                         "WHERE t.function_name = %s AND t.program_id = %s ORDER BY b.height DESC LIMIT 10",
                         (function, program_id)

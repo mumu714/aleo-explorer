@@ -886,14 +886,24 @@ class DatabaseBlock(DatabaseBase):
                     # previous_ids = [x["previous_vertex_id"] for x in await cur.fetchall()]
 
                     # TODO: use batch id after next reset - do we still want to keep this? would be way too expensive
-                    await cur.execute(
-                        "SELECT batch_certificate_id FROM dag_vertex v "
-                        "JOIN UNNEST(%s) WITH ORDINALITY q(id, ord) ON q.id = v.id "
-                        "ORDER BY ord",
-                        (previous_ids,)
-                    )
-                    previous_cert_ids = [x["batch_certificate_id"] for x in await cur.fetchall()]
+                    # await cur.execute(
+                    #     "SELECT batch_certificate_id FROM dag_vertex v "
+                    #     "JOIN UNNEST(%s) WITH ORDINALITY q(id, ord) ON q.id = v.id "
+                    #     "ORDER BY ord",
+                    #     (previous_ids,)
+                    # )
+                    # previous_cert_ids = [x["batch_certificate_id"] for x in await cur.fetchall()]
                     # previous_cert_ids: list[str] = []
+
+                    await cur.execute(
+                        "SELECT previous_vertex_id FROM dag_vertex_previous_id WHERE vertex_id = %s ",
+                        (dag_vertex["id"],)
+                    )
+                    res = await cur.fetchone()
+                    if res:
+                        previous_cert_ids = res["previous_vertex_id"]
+                    else:
+                        previous_cert_ids = []
 
                     await cur.execute(
                         "SELECT * FROM dag_vertex_transmission_id WHERE vertex_id = %s ORDER BY index",

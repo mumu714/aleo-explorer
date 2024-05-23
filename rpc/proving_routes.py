@@ -391,7 +391,7 @@ async def address_route(request: Request):
             "nonce": str(solution["nonce"]),
             "target": str(solution["target"]),
             "target_sum": str(solution["target_sum"]),
-            "commitment": str(solution["commitment"])
+            "commitment": ""
         })
     deploy_programs: list[dict[str, Any]] = []
     for program in programs:

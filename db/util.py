@@ -142,7 +142,7 @@ class DatabaseUtil(DatabaseBase):
                                 if (res := await cur.fetchone()) is None:
                                         raise RuntimeError(f"missing transaction: {t.id}")
                                 await cur.execute(
-                                        "UPDATE transition SET confimed_transaction_id = NULL, transaction_id = NULL WHERE transaction_id = %s",
+                                        "UPDATE transition SET confirmed_transaction_id = NULL, transaction_id = NULL WHERE transaction_id = %s",
                                         (res["id"],)
                                 )
                                 if isinstance(ct, (RejectedDeploy, RejectedExecute)):
@@ -214,9 +214,9 @@ class DatabaseUtil(DatabaseBase):
                             # TODO: change leaderboard to something else, we dont need that on mainnet
                             # revert leaderboard
                             await cur.execute(
-                                "SELECT address, reward FROM prover_solution ps "
-                                "JOIN coinbase_solution cs on ps.coinbase_solution_id = cs.id "
-                                "JOIN explorer.block b on b.id = cs.block_id "
+                                "SELECT address, reward FROM solution s "
+                                "JOIN puzzle_solution ps ON ps.id = s.puzzle_solution_id "
+                                "JOIN block b ON b.id = ps.block_id "
                                 "WHERE b.height = %s",
                                 (block.height,)
                             )
