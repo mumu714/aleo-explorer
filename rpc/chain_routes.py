@@ -15,7 +15,7 @@ from aleo_types import u32, Transition, ExecuteTransaction, PrivateTransitionInp
     FeeTransaction, RejectedDeploy, RejectedExecution, Identifier, Entry, ConfirmedTransaction, \
     Transaction, FutureTransitionOutput, Future, PlaintextArgument, FutureArgument, StructPlaintext, Finalize, \
     PlaintextFinalizeType, StructPlaintextType, UpdateKeyValue, Value, Plaintext, RemoveKeyValue, FinalizeOperation, \
-    Program, BatchCertificate1
+    Program
 from db import Database
 from util.global_cache import get_program
 from .utils import function_signature, out_of_sync_check, function_definition
@@ -140,22 +140,17 @@ async def block_route(request: Request):
 
     subs: DictList = []
     if isinstance(block.authority, QuorumAuthority):
-        subdag = block.authority.subdag  # type: ignore
+        subdag = block.authority.subdag
         for round_, certificates in subdag.subdag.items():
             for index, certificate in enumerate(certificates):
                 if round_ != certificate.batch_header.round:
                     raise ValueError("invalid subdag round")
                 else:
-                    certificate_id = ""
-                    if isinstance(certificate, BatchCertificate1):
-                        certificate_id = str(certificate.certificate_id)
-                        signatures = [str(i[0]) for i in certificate.signatures] 
-                    else:
-                        signatures = [str(i) for i in certificate.signatures]   # type: ignore
+                    signatures = [str(i) for i in certificate.signatures]
                     subs.append({
                         "round": round_,
                         "index": index,
-                        "certificate_id": certificate_id,
+                        "certificate_id": str(certificate.batch_header.batch_id),
                         "batch_id": str(certificate.batch_header.batch_id),
                         "author": str(certificate.batch_header.author),
                         "timestamp": certificate.batch_header.timestamp,

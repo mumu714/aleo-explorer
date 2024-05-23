@@ -316,7 +316,7 @@ class DatabaseProgram(DatabaseBase):
                         "SELECT b.timestamp, ts.transition_id FROM transition ts "
                         "JOIN transaction_execute te on te.id = ts.transaction_execute_id "
                         "JOIN transaction t on te.transaction_id = t.id "
-                        "JOIN confirmed_transaction ct on t.confimed_transaction_id = ct.id "
+                        "JOIN confirmed_transaction ct on t.confirmed_transaction_id = ct.id "
                         "JOIN block b on ct.block_id = b.id "
                         "WHERE ts.program_id = %s AND b.timestamp > %s "
                         "ORDER BY b.height DESC ",

@@ -63,7 +63,7 @@ class DatabaseAddress(DatabaseBase):
             async with conn.cursor() as cur:
                 try:
                     await cur.execute(
-                        "SELECT b.height, b.timestamp, s.counter, s.target, s.solution_id, reward, ps.target_sum, s.commitment "
+                        "SELECT b.height, b.timestamp, s.counter, s.target, s.solution_id, reward, ps.target_sum "
                         "FROM solution s "
                         "JOIN puzzle_solution ps ON ps.id = s.puzzle_solution_id "
                         "JOIN block b ON b.id = ps.block_id "
@@ -424,9 +424,9 @@ LIMIT 10
                 now = int(time.time())
                 try:
                     await cur.execute(
-                        "SELECT ps.reward FROM prover_solution ps "
-                        "JOIN coinbase_solution cs ON ps.coinbase_solution_id = cs.id "
-                        "JOIN block b ON cs.block_id = b.id "
+                        "SELECT ps.reward FROM solution s "
+                        "JOIN puzzle_solution ps ON ps.id = s.puzzle_solution_id "
+                        "JOIN block b ON ps.block_id = b.id "
                         "WHERE address = %s AND timestamp > %s",
                         (address, now - interval)
                     )
@@ -464,9 +464,9 @@ LIMIT 10
                 now = int(time.time())
                 try:
                     await cur.execute(
-                        "SELECT b.height FROM prover_solution ps "
-                        "JOIN coinbase_solution cs ON ps.coinbase_solution_id = cs.id "
-                        "JOIN block b ON cs.block_id = b.id "
+                        "SELECT b.height FROM solution s "
+                        "JOIN puzzle_solution ps ON ps.id = s.puzzle_solution_id "
+                        "JOIN block b ON b.id = ps.block_id "
                         "WHERE address = %s AND timestamp > %s",
                         (address, now - interval)
                     )

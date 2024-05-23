@@ -133,9 +133,9 @@ CREATE TYPE explorer.transmission_id_type AS ENUM (
 CREATE FUNCTION explorer.get_block_target_sum(block_height bigint) RETURNS numeric
     LANGUAGE sql STABLE
     AS $$
-SELECT SUM(target) FROM explorer.partial_solution ps
-JOIN explorer.coinbase_solution cs ON cs.id = ps.coinbase_solution_id
-JOIN explorer.block b ON b.id = cs.block_id
+SELECT SUM(target) FROM explorer.solution s
+JOIN explorer.puzzle_solution ps ON ps.id = s.puzzle_solution_id
+JOIN explorer.block b ON b.id = ps.block_id
 WHERE height = block_height
 $$;
 
@@ -565,10 +565,10 @@ CREATE TABLE explorer.puzzle_solution (
 
 
 --
--- Name: coinbase_solution_id_seq; Type: SEQUENCE; Schema: explorer; Owner: -
+-- Name: puzzle_solution_id_seq; Type: SEQUENCE; Schema: explorer; Owner: -
 --
 
-CREATE SEQUENCE explorer.coinbase_solution_id_seq
+CREATE SEQUENCE explorer.puzzle_solution_id_seq
     AS integer
     START WITH 1
     INCREMENT BY 1
@@ -578,10 +578,10 @@ CREATE SEQUENCE explorer.coinbase_solution_id_seq
 
 
 --
--- Name: coinbase_solution_id_seq; Type: SEQUENCE OWNED BY; Schema: explorer; Owner: -
+-- Name: puzzle_solution_id_seq; Type: SEQUENCE OWNED BY; Schema: explorer; Owner: -
 --
 
-ALTER SEQUENCE explorer.coinbase_solution_id_seq OWNED BY explorer.puzzle_solution.id;
+ALTER SEQUENCE explorer.puzzle_solution_id_seq OWNED BY explorer.puzzle_solution.id;
 
 
 --
@@ -1452,10 +1452,10 @@ CREATE TABLE explorer.solution (
 
 
 --
--- Name: partial_solution_id_seq; Type: SEQUENCE; Schema: explorer; Owner: -
+-- Name: solution_id_seq; Type: SEQUENCE; Schema: explorer; Owner: -
 --
 
-CREATE SEQUENCE explorer.partial_solution_id_seq
+CREATE SEQUENCE explorer.solution_id_seq
     START WITH 1
     INCREMENT BY 1
     NO MINVALUE
@@ -1464,10 +1464,10 @@ CREATE SEQUENCE explorer.partial_solution_id_seq
 
 
 --
--- Name: partial_solution_id_seq; Type: SEQUENCE OWNED BY; Schema: explorer; Owner: -
+-- Name: solution_id_seq; Type: SEQUENCE OWNED BY; Schema: explorer; Owner: -
 --
 
-ALTER SEQUENCE explorer.partial_solution_id_seq OWNED BY explorer.solution.id;
+ALTER SEQUENCE explorer.solution_id_seq OWNED BY explorer.solution.id;
 
 
 --
@@ -1775,7 +1775,7 @@ CREATE TABLE explorer.transition (
     id integer NOT NULL,
     transition_id text NOT NULL,
     transaction_id integer,
-    confimed_transaction_id integer,
+    confirmed_transaction_id integer,
     transaction_execute_id integer,
     fee_id integer,
     program_id text NOT NULL,
@@ -2380,7 +2380,7 @@ ALTER TABLE ONLY explorer.program_function ALTER COLUMN id SET DEFAULT nextval('
 -- Name: puzzle_solution id; Type: DEFAULT; Schema: explorer; Owner: -
 --
 
-ALTER TABLE ONLY explorer.puzzle_solution ALTER COLUMN id SET DEFAULT nextval('explorer.coinbase_solution_id_seq'::regclass);
+ALTER TABLE ONLY explorer.puzzle_solution ALTER COLUMN id SET DEFAULT nextval('explorer.puzzle_solution_id_seq'::regclass);
 
 
 --
@@ -2408,7 +2408,7 @@ ALTER TABLE ONLY explorer.ratification_genesis_bonded ALTER COLUMN id SET DEFAUL
 -- Name: solution id; Type: DEFAULT; Schema: explorer; Owner: -
 --
 
-ALTER TABLE ONLY explorer.solution ALTER COLUMN id SET DEFAULT nextval('explorer.partial_solution_id_seq'::regclass);
+ALTER TABLE ONLY explorer.solution ALTER COLUMN id SET DEFAULT nextval('explorer.solution_id_seq'::regclass);
 
 
 --
@@ -2530,14 +2530,6 @@ ALTER TABLE ONLY explorer.authority
 
 ALTER TABLE ONLY explorer.block_aborted_solution_id
     ADD CONSTRAINT block_aborted_solution_id_pk PRIMARY KEY (id);
-
-
---
--- Name: address_transition_detail address_transition_detail_pk; Type: CONSTRAINT; Schema: explorer; Owner: -
---
-
-ALTER TABLE ONLY explorer.address_transition_detail
-    ADD CONSTRAINT address_transition_detail_pk PRIMARY KEY (id);
 
 
 --
@@ -3756,10 +3748,10 @@ CREATE UNIQUE INDEX transition_transition_id_uindex ON explorer.transition USING
 
 
 --
--- Name: transition_confimed_transaction_id_index; Type: INDEX; Schema: explorer; Owner: -
+-- Name: transition_confirmed_transaction_id_index; Type: INDEX; Schema: explorer; Owner: -
 --
 
-CREATE INDEX transition_confimed_transaction_id_index ON explorer.transition USING btree (confimed_transaction_id);
+CREATE INDEX transition_confirmed_transaction_id_index ON explorer.transition USING btree (confirmed_transaction_id);
 
 
 --
@@ -4158,7 +4150,7 @@ ALTER TABLE ONLY explorer.transition
 --
 
 ALTER TABLE ONLY explorer.transition
-    ADD CONSTRAINT transition_transaction_id_fk FOREIGN KEY (transaction_id) REFERENCES explorer.transaction(id);
+    ADD CONSTRAINT transition_transaction_id_fk FOREIGN KEY (transaction_id) REFERENCES explorer.transaction(id) ON DELETE CASCADE;
 
 
 --
@@ -4166,7 +4158,7 @@ ALTER TABLE ONLY explorer.transition
 --
 
 ALTER TABLE ONLY explorer.transition
-    ADD CONSTRAINT transition_confirmed_transaction_id_fk FOREIGN KEY (confimed_transaction_id) REFERENCES explorer.confirmed_transaction(id);
+    ADD CONSTRAINT transition_confirmed_transaction_id_fk FOREIGN KEY (confirmed_transaction_id) REFERENCES explorer.confirmed_transaction(id) ON DELETE CASCADE;
 
 
 --
