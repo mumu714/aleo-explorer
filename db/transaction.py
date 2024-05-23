@@ -91,6 +91,21 @@ class DatabaseTransaction(DatabaseBase):
                     await self.message_callback(ExplorerMessage(ExplorerMessage.Type.DatabaseError, e))
                     raise
 
+    async def get_transition_count_by_address_program_id_function(self, address: str, program_id:str, function: str) -> int:
+        async with self.pool.connection() as conn:
+            async with conn.cursor() as cur:
+                try:
+                    await cur.execute(
+                        "SELECT COUNT(DISTINCT at.transition_id) FROM address_transition at "
+                        "WHERE at.address = %s AND at.program_id = %s AND at.function_name = %s ",(address,program_id, function,)
+                    )
+                    if (res := await cur.fetchone()) is None:
+                        return 0
+                    return res["count"]
+                except Exception as e:
+                    await self.message_callback(ExplorerMessage(ExplorerMessage.Type.DatabaseError, e))
+                    raise
+
     async def get_bond_transition_count_by_address(self, address: str) -> int:
         async with self.pool.connection() as conn:
             async with conn.cursor() as cur:
@@ -174,6 +189,47 @@ LEFT JOIN block b ON b.id = ct.block_id
 ORDER BY height DESC
 """,
                             (address, function, end - start, start)
+                        )
+                    def transform(x: dict[str, Any]):
+                        return {
+                            "transition_id": x["transition_id"],
+                            "height": x["height"],
+                            "timestamp": x["timestamp"],
+                            "transaction_id": x["transaction_id"],
+                            "type": x["type"],
+                            "first_seen": x["first_seen"]
+                        }
+                    return list(map(lambda x: transform(x), await cur.fetchall()))
+                except Exception as e:
+                    await self.message_callback(ExplorerMessage(ExplorerMessage.Type.DatabaseError, e))
+                    raise
+
+    async def get_transition_by_address_program_id_function(self, address: str, program_id: str, function: str, start: int, end: int) -> list[dict[str, Any]]:
+        async with self.pool.connection() as conn:
+            async with conn.cursor() as cur:
+                try:
+                    await cur.execute(
+                        """
+WITH ats AS
+    (SELECT DISTINCT at.transition_id
+     FROM address_transition at
+     WHERE address = %s AND program_id = %s AND function_name = %s
+     ORDER BY transition_id DESC
+     LIMIT %s OFFSET %s)
+SELECT DISTINCT ts.transition_id,
+                b.height,
+                b.timestamp,
+                tx.transaction_id, 
+                tx.first_seen,
+                ct.type
+FROM ats
+JOIN transition ts ON ats.transition_id = ts.id
+JOIN transaction tx ON tx.id = ts.transaction_id
+LEFT JOIN confirmed_transaction ct ON ct.id = tx.confimed_transaction_id
+LEFT JOIN block b ON b.id = ct.block_id
+ORDER BY height DESC
+""",
+                            (address, program_id, function, end - start, start)
                         )
                     def transform(x: dict[str, Any]):
                         return {
