@@ -813,10 +813,10 @@ async def address_transfer_transaction_route(request: Request):
             offset = int(offset)
     except:
         raise HTTPException(status_code=400, detail="Invalid page")
-    transfer_count = await db.get_transition_count_by_address_and_function(address, "transfer_public")
+    transfer_count = await db.get_transition_count_by_address_program_id_function(address, "credits.aleo", "transfer_public")
     if offset < 0 or offset > transfer_count:
         raise HTTPException(status_code=400, detail="Invalid page")
-    transfer_transitions = await db.get_transition_by_address_and_function(address, "transfer_public", offset, offset + limit)
+    transfer_transitions = await db.get_transition_by_address_program_id_function(address, "credits.aleo", "transfer_public", offset, offset + limit)
     data: list[dict[str, Any]] = []
     for transition_data in transfer_transitions:
         transition = await db.get_transition(transition_data["transition_id"])
