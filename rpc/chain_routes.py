@@ -64,8 +64,8 @@ async def block_route(request: Request):
             css.append({
                 "address": solution["address"],
                 "address_trunc": solution["address"][:15] + "..." + solution["address"][-10:],
-                "nonce": solution["nonce"],
-                "commitment": solution["commitment"][:13] + "..." + solution["commitment"][-10:],
+                "counter": solution["counter"],
+                "solution_id": solution["solution_id"],
                 "target": solution["target"],
                 "reward": solution["reward"],
             })
@@ -150,7 +150,7 @@ async def block_route(request: Request):
                     subs.append({
                         "round": round_,
                         "index": index,
-                        "certificate_id": str(certificate.batch_header.batch_id),
+                        "committee_id": str(certificate.batch_header.committee_id),
                         "batch_id": str(certificate.batch_header.batch_id),
                         "author": str(certificate.batch_header.author),
                         "timestamp": certificate.batch_header.timestamp,
@@ -171,7 +171,7 @@ async def block_route(request: Request):
         "total_priority_fee": total_priority_fee,
         "total_burnt_fee": total_burnt_fee,
         "transactions": txs,
-        "coinbase_solutions": [format_number(cs) for cs in css],
+        "solutions": [format_number(cs) for cs in css],
         "subdag": subs,
         "sync_info": sync_info,
     }
@@ -215,8 +215,8 @@ async def block_solution_route(request: Request):
         css.append({
             "address": solution["address"],
             "address_trunc": solution["address"][:15] + "..." + solution["address"][-10:],
-            "nonce": str(solution["nonce"]),
-            "commitment": solution["commitment"][:13] + "..." + solution["commitment"][-10:],
+            "counter": str(solution["counter"]),
+            "solution_id": solution["solution_id"],
             "target": str(solution["target"]),
             "reward": solution["reward"],
         })

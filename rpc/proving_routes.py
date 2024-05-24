@@ -562,10 +562,10 @@ async def address_solution_route(request: Request):
             "height": solution["height"],
             "timestamp": solution["timestamp"],
             "reward": solution["reward"],
-            "nonce": str(solution["nonce"]),
+            "counter": str(solution["counter"]),
             "target": str(solution["target"]),
             "target_sum": str(solution["target_sum"]),
-            "commitment": solution["commitment"]
+            "solution_id": solution["solution_id"]
         })
     sync_info = await out_of_sync_check(db)
     ctx = {

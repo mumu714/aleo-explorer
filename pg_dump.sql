@@ -1442,6 +1442,7 @@ ALTER SEQUENCE explorer.mapping_value_id_seq OWNED BY explorer.mapping_value.id;
 CREATE TABLE explorer.solution (
     id bigint NOT NULL,
     puzzle_solution_id integer NOT NULL,
+    solution_id text NOT NULL,
     address text NOT NULL,
     counter numeric(20,0) NOT NULL,
     target numeric(20,0) NOT NULL,
