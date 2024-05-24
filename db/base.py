@@ -60,8 +60,7 @@ class DatabaseBase:
                 max_size=16,
             )
             # noinspection PyArgumentList
-            self.redis = Redis(host=self.redis_server, port=self.redis_port, db=self.redis_db, decode_responses=True,
-                               username=self.redis_user, password=self.redis_password)
+            self.redis = Redis(host=self.redis_server, port=self.redis_port, db=self.redis_db, decode_responses=True)
         except Exception as e:
             await self.message_callback(ExplorerMessage(ExplorerMessage.Type.DatabaseConnectError, e))
             return

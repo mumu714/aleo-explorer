@@ -328,7 +328,7 @@ class DatabaseInsert(DatabaseBase):
             await cur.execute(
                 "INSERT INTO transition (transition_id, transaction_id, transaction_execute_id, fee_id, program_id, "
                 "function_name, tpk, tcm, index, scm) "
-                "VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s) RETURNING id",
+                "VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s) RETURNING id",
                 (str(transition.id), transaction_id, exe_tx_db_id, fee_db_id, str(transition.program_id),
                  str(transition.function_name), str(transition.tpk), str(transition.tcm), ts_index, str(transition.scm))
             )
@@ -1854,7 +1854,7 @@ class DatabaseInsert(DatabaseBase):
                 interval = 900
                 try:
                     await cur.execute(
-                        "SELECT ps.address FROM solution s "
+                        "SELECT address FROM solution s "
                         "JOIN puzzle_solution ps ON ps.id = s.puzzle_solution_id "
                         "JOIN block b ON b.id = ps.block_id "
                         "WHERE timestamp > %s",

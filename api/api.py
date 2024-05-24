@@ -20,6 +20,8 @@ from middleware.api_quota import APIQuotaMiddleware
 from middleware.asgi_logger import AccessLoggerMiddleware
 from middleware.server_timing import ServerTimingMiddleware
 from util.cache import Cache
+from starlette.requests import Request
+from starlette.responses import JSONResponse
 from util.set_proc_title import set_proc_title
 from .execute_routes import preview_finalize_route
 from .mapping_routes import mapping_route, mapping_list_route, mapping_value_list_route, mapping_key_count_route
@@ -81,8 +83,7 @@ async def startup():
     db = Database(server=os.environ["DB_HOST"], user=os.environ["DB_USER"], password=os.environ["DB_PASS"],
                   database=os.environ["DB_DATABASE"], schema=os.environ["DB_SCHEMA"],
                   redis_server=os.environ["REDIS_HOST"], redis_port=int(os.environ["REDIS_PORT"]),
-                  redis_db=int(os.environ["REDIS_DB"]), redis_user=os.environ.get("REDIS_USER"),
-                  redis_password=os.environ.get("REDIS_PASS"),
+                  redis_db=int(os.environ["REDIS_DB"]), 
                   message_callback=noop)
     await db.connect()
     app.state.db = db
