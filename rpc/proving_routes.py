@@ -1009,12 +1009,39 @@ async def estimate_fee_route(request: Request):
     gas_list: list[int] = []
     for transaction in transactions:
         transaction_id = transaction["transaction_id"]
-        confirmed_transaction = await db.get_confirmed_transaction(transaction_id)
-        storage_cost, namespace_cost, finalize_costs, priority_fee, burnt = await confirmed_transaction.get_fee_breakdown(db)
+        height = transaction["height"]
+        tx_id = await db.get_updated_transaction_id(transaction_id)
+        is_confirmed = await db.is_transaction_confirmed(tx_id)
+        if is_confirmed is None:
+            raise HTTPException(status_code=404, detail="Transaction not found")
+        if is_confirmed:
+            confirmed_transaction = await db.get_confirmed_transaction(tx_id)
+            if confirmed_transaction is None:
+                raise HTTPException(status_code=550, detail="Database inconsistent")
+            transaction = confirmed_transaction.transaction
+        else:
+            confirmed_transaction = None
+            transaction = await db.get_unconfirmed_transaction(tx_id)
+            if transaction is None:
+                raise HTTPException(status_code=404, detail="Transaction not found")
+        fee = transaction.fee
+        if isinstance(fee, Fee):
+            storage_cost, priority_fee = fee.amount
+        elif fee.value is not None:
+            storage_cost, priority_fee = fee.value.amount
+        else:
+            storage_cost, priority_fee = 0, 0
+        namespace_cost = 0
+        finalize_costs = []
+        burnt = 0
+
+        # confirmed_transaction = await db.get_confirmed_transaction(transaction_id)
+        # storage_cost, namespace_cost, finalize_costs, priority_fee, burnt = await confirmed_transaction.get_fee_breakdown(db)
+
         gas_fee = storage_cost + namespace_cost + sum(finalize_costs) + priority_fee + burnt
         gas_list.append(gas_fee)
         data.append({
-            "height": transaction["height"],
+            "height": height,
             "transaction_id": transaction_id,
             "gas_fee": gas_fee,
         })
