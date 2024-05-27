@@ -215,6 +215,7 @@ async def block_solution_route(request: Request):
         raise HTTPException(status_code=400, detail="Invalid page")
     start = 10 * (page - 1)
     css: DictList = []
+    target_sum = 0
     solutions = await db.get_solution_by_height(height, start, start + 10)
     for solution in solutions:
         css.append({
@@ -225,12 +226,14 @@ async def block_solution_route(request: Request):
             "target": str(solution["target"]),
             "reward": solution["reward"],
         })
+        target_sum += solution["target"]
     ctx = {
         "height": height,
         "block_hash_trunc": str(block_hash)[:12] + "..." + str(block_hash)[-6:],
         "solutions": css,
         "page": page,
-        "total_pages": total_pages,
+        "target_sum": str(target_sum),
+        "solution_count": solution_count,
     }
     return JSONResponse(ctx)
 
