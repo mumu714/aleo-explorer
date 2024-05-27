@@ -19,10 +19,8 @@ from aleo_types import *
 async def calc_route(request: Request):
     db: Database = request.app.state.db
     proof_target = (await db.get_latest_block()).header.metadata.proof_target
-    sync_info = await out_of_sync_check(db)
     ctx = {
         "proof_target": proof_target,
-        "sync_info": sync_info,
     }
     return JSONResponse(ctx)
 
@@ -61,13 +59,11 @@ async def validators_route(request: Request):
             "stake": int(validator["stake"]),
             "is_open": validator["is_open"]
         })
-    sync_info = await out_of_sync_check(db)
     ctx = {
         "validators": data,
         "address_count": address_count,
         "total_stake": int(committee["total_stake"]),
         "starting_round": int(committee["starting_round"]),
-        "sync_info": sync_info,
     }
     return JSONResponse(ctx)
 
@@ -108,54 +104,9 @@ async def credits_route(request: Request):
             "public_credits": int(line["public_credits"]),
             "total_reward": int(total_rewards)
         })
-    sync_info = await out_of_sync_check(db)
     ctx = {
         "leaderboard": data,
         "address_count": address_count,
-        "sync_info": sync_info,
-    }
-    return JSONResponse(ctx)
-
-
-async def leaderboard_route(request: Request):
-    db: Database = request.app.state.db
-    try:
-        limit = request.query_params.get("limit")
-        offset = request.query_params.get("offset")
-        if limit is None:
-            limit = 50
-        else:
-            limit = int(limit)
-        if offset is None:
-            offset = 0
-        else:
-            offset = int(offset)
-    except:
-        raise HTTPException(status_code=400, detail="Invalid page")
-    address_count = await db.get_leaderboard_size()
-    if offset < 0 or offset > address_count:
-        raise HTTPException(status_code=400, detail="Invalid page")
-    leaderboard_data = await db.get_leaderboard(offset, offset + limit)
-    data: list[dict[str, Any]] = []
-    for line in leaderboard_data:
-        data.append({
-            "address": line["address"],
-            "total_rewards": str(int(line["total_reward"])),
-            "total_incentive": str(int(line["total_incentive"])),
-        })
-    now = int(time.time())
-    total_credit = await db.get_leaderboard_total()
-    target_credit = 37_500_000_000_000
-    ratio = total_credit / target_credit * 100
-    sync_info = await out_of_sync_check(db)
-    ctx = {
-        "leaderboard": data,
-        "address_count": address_count,
-        "total_credit": total_credit,
-        "target_credit": target_credit,
-        "ratio": ratio,
-        "now": now,
-        "sync_info": sync_info,
     }
     return JSONResponse(ctx)
 
@@ -224,18 +175,12 @@ async def reward_route(request: Request):
         else:
             data = leaderboard_data[offset:offset + limit]
 
-    total_credit = await db.get_leaderboard_total()
     target_credit = 37_500_000_000_000
-    ratio = total_credit / target_credit * 100
-    sync_info = await out_of_sync_check(db)
     ctx = {
         "leaderboard": data,
         "address_count": address_count,
-        "total_credit": total_credit,
         "target_credit": target_credit,
-        "ratio": ratio,
         "now": now,
-        "sync_info": sync_info,
     }
     return JSONResponse(ctx)
 
@@ -286,18 +231,12 @@ async def power_route(request: Request):
     else:
         data = leaderboard_data[offset:offset + limit]
 
-    total_credit = await db.get_leaderboard_total()
     target_credit = 37_500_000_000_000
-    ratio = total_credit / target_credit * 100
-    sync_info = await out_of_sync_check(db)
     ctx = {
         "leaderboard": data,
         "address_count": address_count,
-        "total_credit": total_credit,
         "target_credit": target_credit,
-        "ratio": ratio,
         "now": now,
-        "sync_info": sync_info,
     }
     return JSONResponse(ctx)
 
@@ -320,13 +259,13 @@ async def address_route(request: Request):
     except:
         raise HTTPException(status_code=404, detail="Address error")
     address_key_bytes = address_key.dump()
-    account_key_id = aleo_explorer_rust.get_key_id("credits.aleo", "account", address_key_bytes)
-    bonded_key_id = aleo_explorer_rust.get_key_id("credits.aleo", "bonded", address_key_bytes)
-    unbonded_key_id = aleo_explorer_rust.get_key_id("credits.aleo", "unbonding", address_key_bytes)
-    committee_key_id = aleo_explorer_rust.get_key_id("credits.aleo", "committee", address_key_bytes)
+    account_key_id = cached_get_key_id("credits.aleo", "account", address_key_bytes)
+    bonded_key_id = cached_get_key_id("credits.aleo", "bonded", address_key_bytes)
+    unbonding_key_id = cached_get_key_id("credits.aleo", "unbonding", address_key_bytes)
+    committee_key_id = cached_get_key_id("credits.aleo", "committee", address_key_bytes)
     public_balance_bytes = await db.get_mapping_value("credits.aleo", "account", account_key_id)
     bond_state_bytes = await db.get_mapping_value("credits.aleo", "bonded", bonded_key_id)
-    unbond_state_bytes = await db.get_mapping_value("credits.aleo", "unbonding", unbonded_key_id)
+    unbond_state_bytes = await db.get_mapping_value("credits.aleo", "unbonding", unbonding_key_id)
     committee_state_bytes = await db.get_mapping_value("credits.aleo", "committee", committee_key_id)
     stake_reward = await db.get_address_stake_reward(address)
     delegate_reward = await db.get_address_delegate_reward(address)
@@ -334,6 +273,7 @@ async def address_route(request: Request):
     transfer_out = await db.get_address_transfer_out(address)
     fee = await db.get_address_total_fee(address)
     address_info = await db.get_address_info(address)
+    program_name = await db.get_program_name_from_address(address)
 
     if (len(solutions) == 0
         and len(programs) == 0
@@ -347,12 +287,13 @@ async def address_route(request: Request):
         and transfer_out is None
         and fee is None
         and address_info is None
+        and program_name is None
     ):
         return JSONResponse({})
     now = int(time.time())
     if len(solutions) > 0:
         solution_count = await db.get_solution_count_by_address(address)
-        total_rewards, total_incentive = await db.get_leaderboard_rewards_by_address(address)
+        total_rewards = await db.get_puzzle_reward_by_address(address)
         solutions_15min = await db.get_solutions_by_address_and_time(address, now - 900)
         reward_15min = sum(solution["reward"] for solution in solutions_15min)
         solutions_1h = await db.get_solutions_by_address_and_time(address, now - 3600)
@@ -369,7 +310,6 @@ async def address_route(request: Request):
         reward_1d = 0
         reward_7d = 0
         total_rewards = 0
-        total_incentive = 0
         speed = 0
         interval = 0
     program_count = await db.get_program_count_by_address(address)
@@ -388,10 +328,10 @@ async def address_route(request: Request):
             "height": solution["height"],
             "timestamp": solution["timestamp"],
             "reward": solution["reward"],
-            "nonce": str(solution["nonce"]),
+            "counter": str(solution["counter"]),
             "target": str(solution["target"]),
             "target_sum": str(solution["target_sum"]),
-            "commitment": ""
+            "solution_id": solution["solution_id"],
         })
     deploy_programs: list[dict[str, Any]] = []
     for program in programs:
@@ -410,7 +350,16 @@ async def address_route(request: Request):
                     break
         if transaction is None:
             raise HTTPException(status_code=550, detail="Deploy transaction not found")
-        base_fee, priority_fee = transaction.fee.amount
+        fee = transaction.fee
+        if isinstance(fee, Fee):
+            base_fee, priority_fee = fee.amount
+        elif fee.value is not None:
+            base_fee, priority_fee = fee.value.amount
+        else:
+            base_fee, priority_fee = 0, 0
+        fee_breakdown = FeeComponent(base_fee, 0, [0], priority_fee, 0)
+        base_fee = fee_breakdown.storage_cost + fee_breakdown.namespace_cost + sum(fee_breakdown.finalize_costs)
+        priority_fee = fee_breakdown.priority_fee
         deploy_programs.append({
             "program_id": program,
             "height": deploy_info["height"],
@@ -425,7 +374,7 @@ async def address_route(request: Request):
     else:
         value = cast(PlaintextValue, Value.load(BytesIO(public_balance_bytes)))
         plaintext = cast(LiteralPlaintext, value.plaintext)
-        public_balance = int(plaintext.literal.primitive)
+        public_balance = int(cast(Int, plaintext.literal.primitive))
     if bond_state_bytes is None:
         bond_state = None
     else:
@@ -435,7 +384,7 @@ async def address_route(request: Request):
         amount = cast(LiteralPlaintext, plaintext["microcredits"])
         bond_state = {
             "validator": str(validator.literal.primitive),
-            "amount": int(amount.literal.primitive),
+            "amount": int(cast(Int, amount.literal.primitive)),
         }
     if unbond_state_bytes is None:
         unbond_state = None
@@ -445,8 +394,8 @@ async def address_route(request: Request):
         amount = cast(LiteralPlaintext, plaintext["microcredits"])
         height = cast(LiteralPlaintext, plaintext["height"])
         unbond_state = {
-            "amount": int(amount.literal.primitive),
-            "height": str(height.literal.primitive),
+            "amount": int(cast(Int, amount.literal.primitive)),
+            "height": int(cast(u64, height.literal.primitive)),
         }
     if committee_state_bytes is None:
         committee_state = None
@@ -456,7 +405,7 @@ async def address_route(request: Request):
         amount = cast(LiteralPlaintext, plaintext["microcredits"])
         is_open = cast(LiteralPlaintext, plaintext["is_open"])
         committee_state = {
-            "amount": int(amount.literal.primitive),
+            "amount": int(cast(Int, amount.literal.primitive)),
             "is_open": bool(is_open.literal.primitive),
         }
     if stake_reward is None:
@@ -488,7 +437,6 @@ async def address_route(request: Request):
             "favorites": favorites
         }
 
-    sync_info = await out_of_sync_check(db)
     network_1hour_speed = await db.get_network_speed(3600)
     network_1hour_reward = await db.get_network_reward(3600)
     address_1hour_reward = await db.get_address_reward(address, 3600)
@@ -502,7 +450,6 @@ async def address_route(request: Request):
         "1h_rewards": int(reward_1h),
         "1d_rewards": int(reward_1d),
         "7d_rewards": int(reward_7d),
-        "total_incentive": int(total_incentive),
         "total_solutions": solution_count,
         "total_programs": program_count,
         "total_execution_transactions": address_info["execution_transactions"],
@@ -529,7 +476,6 @@ async def address_route(request: Request):
         },
         "solutions": recent_solutions,
         "programs": deploy_programs,
-        "sync_info": sync_info,
     }
 
     return JSONResponse(ctx)
@@ -567,13 +513,11 @@ async def address_solution_route(request: Request):
             "target_sum": str(solution["target_sum"]),
             "solution_id": solution["solution_id"]
         })
-    sync_info = await out_of_sync_check(db)
     ctx = {
         "address": address,
         "address_trunc": address[:14] + "..." + address[-6:],
         "solutions": data,
         "solution_count": solution_count,
-        "sync_info": sync_info,
     }
     return JSONResponse(ctx)
 
@@ -644,14 +588,12 @@ async def address_transaction_route(request: Request):
             "function_name": str(transition.function_name),
         })
 
-    sync_info = await out_of_sync_check(db)
     ctx = {
         "address": address,
         "address_trunc": address[:14] + "..." + address[-6:],
         "total_execution_transactions": address_info["execution_transactions"],
         "total_fee_transactions": address_info["fee_transactions"],
         "transactions": data,
-        "sync_info": sync_info,
     }
     return JSONResponse(ctx)
 
@@ -722,13 +664,11 @@ async def address_function_transaction_route(request: Request):
             "function_name": str(transition.function_name),
         })
 
-    sync_info = await out_of_sync_check(db)
     ctx = {
         "address": address,
         "address_trunc": address[:14] + "..." + address[-6:],
         "transaction_count": transactions_count,
         "transactions": data,
-        "sync_info": sync_info,
     }
     return JSONResponse(ctx)
 
@@ -784,13 +724,11 @@ async def address_bonds_transaction_route(request: Request):
             "function_name": str(transition.function_name),
         })
 
-    sync_info = await out_of_sync_check(db)
     ctx = {
         "address": address,
         "address_trunc": address[:14] + "..." + address[-6:],
         "bonds_count": bonds_count,
         "transactions": data,
-        "sync_info": sync_info,
     }
     return JSONResponse(ctx)
 
@@ -846,13 +784,11 @@ async def address_transfer_transaction_route(request: Request):
             "function_name": str(transition.function_name),
         })
 
-    sync_info = await out_of_sync_check(db)
     ctx = {
         "address": address,
         "address_trunc": address[:14] + "..." + address[-6:],
         "transfer_count": transfer_count,
         "transactions": data,
-        "sync_info": sync_info,
     }
     return JSONResponse(ctx)
 
@@ -916,14 +852,12 @@ async def address_trending_route(request: Request):
                 cur_solution = [solution for solution in solutions if
                                 trending_time > solution["timestamp"] >= trending_time - 3600 * 1]
                 trending_time = trending_time - 3600 * 1
-    sync_info = await out_of_sync_check(db)
     ctx = {
         "address": address,
         "address_trunc": address[:14] + "..." + address[-6:],
         "counts_data": counts_data,
         "power_data": power_data,
         "speed_data": speed_data,
-        "sync_info": sync_info,
     }
     return JSONResponse(ctx)
 
@@ -984,12 +918,10 @@ async def baseline_trending_route(request: Request):
                 cur_solution = [solution for solution in solutions if
                                 trending_time > solution["timestamp"] >= trending_time - 3600 * 1]
                 trending_time = trending_time - 3600 * 1
-    sync_info = await out_of_sync_check(db)
     ctx = {
         "counts_data": counts_data,
         "power_data": power_data,
         "speed_data": speed_data,
-        "sync_info": sync_info,
     }
     return JSONResponse(ctx)
 
@@ -1022,13 +954,11 @@ async def validator_trending_route(request: Request):
             cur_trend = [trend for trend in validator_trend if
                             trending_time > trend["timestamp"] >= trending_time - 86400 * 1]
             trending_time = trending_time - 86400 * 1
-    sync_info = await out_of_sync_check(db)
     ctx = {
         "address": address,
         "address_trunc": address[:14] + "..." + address[-6:],
         "stake_data": stake_data,
         "profit_data": profit_data,
-        "sync_info": sync_info,
     }
     return JSONResponse(ctx)
 
@@ -1060,11 +990,9 @@ async def validator_bonds_route(request: Request):
         delegators = all_delegators[offset:]
     else:
         delegators = all_delegators[offset:offset + limit]
-    sync_info = await out_of_sync_check(db)
     ctx = {
         "delegators": delegators,
         "delegator_count": delegator_count,
-        "sync_info": sync_info,
     }
     return JSONResponse(ctx)
 

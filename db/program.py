@@ -172,7 +172,7 @@ class DatabaseProgram(DatabaseBase):
             async with conn.cursor() as cur:
                 try:
                     await cur.execute(
-                        "SELECT b.height, b.timestamp, ts.transition_id, function_name, ct.type "
+                        "SELECT b.height, b.timestamp, ts.transition_id, function_name, ct.type, t.transaction_id "
                         "FROM transition ts "
                         "JOIN transaction_execute te on te.id = ts.transaction_execute_id "
                         "JOIN transaction t on te.transaction_id = t.id "

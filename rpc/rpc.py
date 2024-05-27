@@ -5,6 +5,7 @@ import os
 import time
 from typing import Any
 
+import aiohttp
 import uvicorn
 from starlette.applications import Starlette
 from starlette.exceptions import HTTPException
@@ -26,6 +27,7 @@ from starlette.middleware.cors import CORSMiddleware
 from middleware.api_quota import APIQuotaMiddleware
 from middleware.server_timing import ServerTimingMiddleware
 from util.cache import Cache
+from util.set_proc_title import set_proc_title
 from middleware.minify import MinifyMiddleware
 # from node.light_node import LightNodeState
 from .chain_routes import *
@@ -61,7 +63,7 @@ async def index_route(request: Request):
     db: Database = request.app.state.db
     recent_blocks = await db.get_recent_blocks_fast()
     network_speed = await db.get_network_speed(900)
-    sync_info = await out_of_sync_check(db)
+    sync_info = await out_of_sync_check(request.app.state.session, db)
     latest_block = await db.get_latest_block()
     validators_count = await db.get_validators_size()
     provers_count = await db.get_leaderboard_size()
@@ -118,7 +120,6 @@ routes = [
     Route("/validator_apr", validator_apr_route),
     Route("/validator/bonds", validator_bonds_route),
     Route("/validator/trending", validator_trending_route),
-    Route("/leaderboard", leaderboard_route),
     Route("/credits", credits_route),
     Route("/power/leaderboard/{type}", power_route),
     Route("/reward/leaderboard/{type}", reward_route),
@@ -132,6 +133,7 @@ routes = [
     Route("/transfer", address_transfer_transaction_route),
     Route("/baseline_trending", baseline_trending_route),
     Route("/biggest_miners", biggest_miners_route),
+    Route("/favorites_update", favorites_update_route, methods=["POST"]),
     # Other
     Route("/robots.txt", robots_route),
     # mapping
@@ -140,7 +142,6 @@ routes = [
     Route("/v{version:int}/mapping/list_program_mappings/{program_id}", mapping_list_route),
     Route("/v{version:int}/mapping/list_program_mapping_values/{program_id}/{mapping}", mapping_value_list_route),
     Route("/v{version:int}/preview_finalize_execution", preview_finalize_route, methods=["POST"]),
-    Route("/favorites_update", favorites_update_route, methods=["POST"]),
 ]
 
 async def startup():
@@ -157,7 +158,7 @@ async def startup():
     # noinspection PyUnresolvedReferences
     app.state.db = db
     app.state.program_cache = Cache()
-
+    app.state.session = aiohttp.ClientSession(timeout=aiohttp.ClientTimeout(total=1))
 
 log_format = '\033[92mACCESS\033[0m: \033[94m%(client_addr)s\033[0m - - %(t)s \033[96m"%(request_line)s"\033[0m \033[93m%(s)s\033[0m %(B)s "%(f)s" "%(a)s" %(L)s \033[95m%(htmx)s\033[0m'
 # noinspection PyTypeChecker

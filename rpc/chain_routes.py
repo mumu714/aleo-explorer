@@ -12,12 +12,13 @@ from aleo_types import u32, Transition, ExecuteTransaction, PrivateTransitionInp
     RecordTransitionInput, TransitionOutput, RecordTransitionOutput, DeployTransaction, PublicTransitionInput, \
     PublicTransitionOutput, PrivateTransitionOutput, ExternalRecordTransitionInput, \
     ExternalRecordTransitionOutput, AcceptedDeploy, AcceptedExecute, RejectedExecute, \
-    FeeTransaction, RejectedDeploy, RejectedExecution, Identifier, Entry, ConfirmedTransaction, \
-    Transaction, FutureTransitionOutput, Future, PlaintextArgument, FutureArgument, StructPlaintext, Finalize, \
+    FeeTransaction, RejectedDeploy, RejectedExecution, Identifier, Entry, FutureTransitionOutput, Future, \
+    PlaintextArgument, FutureArgument, StructPlaintext, Finalize, \
     PlaintextFinalizeType, StructPlaintextType, UpdateKeyValue, Value, Plaintext, RemoveKeyValue, FinalizeOperation, \
-    Program
+    cached_get_mapping_id, cached_get_key_id, FeeComponent, Fee
 from db import Database
 from util.global_cache import get_program
+from .classes import UIAddress
 from .utils import function_signature, out_of_sync_check, function_definition
 from .format import *
 
@@ -55,88 +56,90 @@ async def block_route(request: Request):
     height = int(height)
 
     coinbase_reward = await db.get_block_coinbase_reward_by_height(height)
-    css: DictList = []
-    target_sum = 0
     if coinbase_reward is not None:
         coinbase_reward = coinbase_reward // 2
-        solutions = await db.get_solution_by_height(height, 0, 100)
-        for solution in solutions:
-            css.append({
-                "address": solution["address"],
-                "address_trunc": solution["address"][:15] + "..." + solution["address"][-10:],
-                "counter": solution["counter"],
-                "solution_id": solution["solution_id"],
-                "target": solution["target"],
-                "reward": solution["reward"],
-            })
-            target_sum += solution["target"]
-
     txs: DictList = []
     total_base_fee = 0
     total_priority_fee = 0
     total_burnt_fee = 0
     for ct in block.transactions.transactions:
-        fee_breakdown = await ct.get_fee_breakdown(db)
+        # TODO: use proper fee calculation
+        # fee_breakdown = await ct.get_fee_breakdown(db)
+        fee = ct.transaction.fee
+        if isinstance(fee, Fee):
+            base_fee, priority_fee = fee.amount
+        elif fee.value is not None:
+            base_fee, priority_fee = fee.value.amount
+        else:
+            base_fee, priority_fee = 0, 0
+        fee_breakdown = FeeComponent(base_fee, 0, [0], priority_fee, 0)
+        print(fee_breakdown)
         base_fee = fee_breakdown.storage_cost + fee_breakdown.namespace_cost + sum(fee_breakdown.finalize_costs)
         priority_fee = fee_breakdown.priority_fee
         burnt_fee = fee_breakdown.burnt
         total_base_fee += base_fee
         total_priority_fee += priority_fee
         total_burnt_fee += burnt_fee
-        match ct:
-            case AcceptedDeploy():
-                tx = ct.transaction
-                if not isinstance(tx, DeployTransaction):
-                    raise HTTPException(status_code=550, detail="Invalid transaction type")
-                t = {
-                    "tx_id": str(tx.id),
-                    "index": ct.index,
-                    "type": "Deploy",
-                    "state": "Accepted",
-                    "transitions_count": 1,
-                    "base_fee": base_fee - burnt_fee,
-                    "priority_fee": priority_fee,
-                    "burnt_fee": burnt_fee,
-                }
-                txs.append(t)
-            case AcceptedExecute():
-                tx = ct.transaction
-                if not isinstance(tx, ExecuteTransaction):
-                    raise HTTPException(status_code=550, detail="Invalid transaction type")
-                additional_fee = tx.additional_fee.value
-                if additional_fee is not None:
-                    base_fee, priority_fee = additional_fee.amount
-                else:
-                    base_fee, priority_fee = 0, 0
-                t = {
-                    "tx_id": str(tx.id),
-                    "index": ct.index,
-                    "type": "Execute",
-                    "state": "Accepted",
-                    "transitions_count": len(tx.execution.transitions) + bool(tx.additional_fee.value is not None),
-                    "base_fee": base_fee - burnt_fee,
-                    "priority_fee": priority_fee,
-                    "burnt_fee": burnt_fee,
-                }
-                txs.append(t)
-            case RejectedExecute():
-                tx = ct.transaction
-                if not isinstance(tx, FeeTransaction):
-                    raise HTTPException(status_code=550, detail="Invalid transaction type")
-                base_fee, priority_fee = tx.fee.amount
-                t = {
-                    "tx_id": str(tx.id),
-                    "index": ct.index,
-                    "type": "Execute",
-                    "state": "Rejected",
-                    "transitions_count": 1,
-                    "base_fee": base_fee - burnt_fee,
-                    "priority_fee": priority_fee,
-                    "burnt_fee": burnt_fee,
-                }
-                txs.append(t)
-            case _:
-                raise HTTPException(status_code=550, detail="Unsupported transaction type")
+        if isinstance(ct, AcceptedDeploy):
+            tx = ct.transaction
+            if not isinstance(tx, DeployTransaction):
+                raise HTTPException(status_code=550, detail="Invalid transaction type")
+            t = {
+                "tx_id": str(tx.id),
+                "index": ct.index,
+                "type": "Deploy",
+                "state": "Accepted",
+                "transitions_count": 1,
+                "base_fee": base_fee - burnt_fee,
+                "priority_fee": priority_fee,
+                "burnt_fee": burnt_fee,
+                "program_id": tx.deployment.program.id,
+            }
+            txs.append(t)
+        elif isinstance(ct, AcceptedExecute):
+            tx = ct.transaction
+            if not isinstance(tx, ExecuteTransaction):
+                raise HTTPException(status_code=550, detail="Invalid transaction type")
+            root_transition = tx.execution.transitions[-1]
+            t = {
+                "tx_id": str(tx.id),
+                "index": ct.index,
+                "type": "Execute",
+                "state": "Accepted",
+                "transitions_count": len(tx.execution.transitions) + bool(tx.fee.value is not None),
+                "base_fee": base_fee - burnt_fee,
+                "priority_fee": priority_fee,
+                "burnt_fee": burnt_fee,
+                "root_transition": f"{root_transition.program_id}/{root_transition.function_name}",
+            }
+            txs.append(t)
+        elif isinstance(ct, RejectedExecute):
+            tx = ct.transaction
+            if not isinstance(tx, FeeTransaction):
+                raise HTTPException(status_code=550, detail="Invalid transaction type")
+            rejected = ct.rejected
+            if not isinstance(rejected, RejectedExecution):
+                raise HTTPException(status_code=550, detail="Invalid rejected transaction type")
+            root_transition = rejected.execution.transitions[-1]
+            t = {
+                "tx_id": str(tx.id),
+                "index": ct.index,
+                "type": "Execute",
+                "state": "Rejected",
+                "transitions_count": 1,
+                "base_fee": base_fee - burnt_fee,
+                "priority_fee": priority_fee,
+                "burnt_fee": burnt_fee,
+                "root_transition": f"{root_transition.program_id}/{root_transition.function_name}",
+            }
+            txs.append(t)
+        else:
+            raise HTTPException(status_code=550, detail="Unsupported transaction type")
+
+    validators, all_validators_raw = await db.get_validator_by_height(height)
+    all_validators: list[UIAddress] = []
+    for v in all_validators_raw:
+        all_validators.append(await UIAddress(v["address"]).resolve(db))
 
     subs: DictList = []
     if isinstance(block.authority, QuorumAuthority):
@@ -160,20 +163,17 @@ async def block_route(request: Request):
                         "signatures": signatures 
                     })
 
-    sync_info = await out_of_sync_check(db)
     ctx = {
         "block": format_block(block),
         "block_hash_trunc": str(block_hash)[:12] + "..." + str(block_hash)[-6:],
-        "validator": "Not implemented", # await db.get_miner_from_block_hash(block.block_hash),
         "coinbase_reward": str(coinbase_reward),
-        "target_sum": str(target_sum),
+        "transactions": txs,
         "total_base_fee": total_base_fee,
         "total_priority_fee": total_priority_fee,
         "total_burnt_fee": total_burnt_fee,
-        "transactions": txs,
-        "solutions": [format_number(cs) for cs in css],
         "subdag": subs,
-        "sync_info": sync_info,
+        "validators": validators,
+        "all_validators": [v.address for v in all_validators],
     }
     return JSONResponse(ctx)
 
@@ -210,6 +210,7 @@ async def block_solution_route(request: Request):
         raise HTTPException(status_code=400, detail="Invalid page")
     start = 10 * (page - 1)
     css: DictList = []
+    target_sum = await db.get_solution_total_target_by_height(height)
     solutions = await db.get_solution_by_height(height, start, start + 10)
     for solution in solutions:
         css.append({
@@ -224,8 +225,9 @@ async def block_solution_route(request: Request):
         "height": height,
         "block_hash_trunc": str(block_hash)[:12] + "..." + str(block_hash)[-6:],
         "solutions": css,
+        "target_sum": int(target_sum),
         "page": page,
-        "total_pages": total_pages,
+        "solution_count": solution_count,
     }
     return JSONResponse(ctx)
 
@@ -234,64 +236,85 @@ async def transaction_route(request: Request):
     tx_id = request.query_params.get("id")
     if tx_id is None:
         raise HTTPException(status_code=400, detail="Missing transaction id")
-    block = await db.get_block_from_transaction_id(tx_id)
-    if block is None:
+    tx_id = await db.get_updated_transaction_id(tx_id)
+    is_confirmed = await db.is_transaction_confirmed(tx_id)
+    if is_confirmed is None:
         raise HTTPException(status_code=404, detail="Transaction not found")
+    if is_confirmed:
+        confirmed_transaction = await db.get_confirmed_transaction(tx_id)
+        if confirmed_transaction is None:
+            raise HTTPException(status_code=550, detail="Database inconsistent")
+        transaction = confirmed_transaction.transaction
+    else:
+        confirmed_transaction = None
+        transaction = await db.get_unconfirmed_transaction(tx_id)
+        if transaction is None:
+            raise HTTPException(status_code=404, detail="Transaction not found")
 
-    transaction: Transaction | None = None
-    confirmed_transaction: ConfirmedTransaction | None = None
-    transaction_type = ""
-    transaction_state = ""
+    first_seen = await db.get_transaction_first_seen(tx_id)
     index = -1
-    for ct in block.transactions:
-        match ct:
-            case AcceptedDeploy():
-                tx = ct.transaction
-                if not isinstance(tx, DeployTransaction):
-                    raise HTTPException(status_code=550, detail="Database inconsistent")
-                transaction_type = "Deploy"
-                transaction_state = "Accepted"
-                if str(tx.id) == tx_id:
-                    confirmed_transaction = ct
-                    transaction = tx
-                    index = ct.index
-                    break
-            case AcceptedExecute():
-                tx = ct.transaction
-                if not isinstance(tx, ExecuteTransaction):
-                    raise HTTPException(status_code=550, detail="Database inconsistent")
-                transaction_type = "Execute"
-                transaction_state = "Accepted"
-                if str(tx.id) == tx_id:
-                    confirmed_transaction = ct
-                    transaction = tx
-                    index = ct.index
-                    break
-            case RejectedDeploy():
-                raise HTTPException(status_code=550, detail="Unsupported transaction type")
-            case RejectedExecute():
-                tx = ct.transaction
-                if not isinstance(tx, FeeTransaction):
-                    raise HTTPException(status_code=550, detail="Database inconsistent")
-                transaction_type = "Execute"
-                transaction_state = "Rejected"
-                if str(tx.id) == tx_id:
-                    confirmed_transaction = ct
-                    transaction = tx
-                    index = ct.index
-                    break
-            case _:
-                raise HTTPException(status_code=550, detail="Unsupported transaction type")
-    if transaction is None:
-        raise HTTPException(status_code=550, detail="Transaction not found in block")
+    original_txid: Optional[str] = None
+    program_info: Optional[dict[str, Any]] = None
+    if isinstance(transaction, DeployTransaction):
+        transaction_type = "Deploy"
+        if is_confirmed:
+            transaction_state = "Accepted"
+            index = confirmed_transaction.index
+        else:
+            transaction_state = "Unconfirmed"
+            program_info = await db.get_deploy_transaction_program_info(tx_id)
+            if program_info is None:
+                raise HTTPException(status_code=550, detail="Database inconsistent")
+    elif isinstance(transaction, ExecuteTransaction):
+        transaction_type = "Execute"
+        if is_confirmed:
+            transaction_state = "Accepted"
+            index = confirmed_transaction.index
+        else:
+            transaction_state = "Unconfirmed"
+    elif isinstance(transaction, FeeTransaction):
+        if confirmed_transaction is None:
+            raise HTTPException(status_code=550, detail="Database inconsistent")
+        index = confirmed_transaction.index
+        if isinstance(confirmed_transaction, RejectedDeploy):
+            transaction_type = "Deploy"
+            transaction_state = "Rejected"
+            program_info = await db.get_deploy_transaction_program_info(tx_id)
+        elif isinstance(confirmed_transaction, RejectedExecute):
+            transaction_type = "Execute"
+            transaction_state = "Rejected"
+        else:
+            raise HTTPException(status_code=550, detail="Database inconsistent")
+        original_txid = await db.get_rejected_transaction_original_id(tx_id)
+    else:
+        raise HTTPException(status_code=550, detail="Unsupported transaction type")
 
-    storage_cost, namespace_cost, finalize_costs, priority_fee, burnt = await confirmed_transaction.get_fee_breakdown(db)
+    # TODO: use proper fee calculation
+    if confirmed_transaction is None:
+        # storage_cost, namespace_cost, finalize_costs, priority_fee, burnt = await transaction.get_fee_breakdown(db)
+        block = None
+        block_confirm_time = None
+    else:
+        # storage_cost, namespace_cost, finalize_costs, priority_fee, burnt = await confirmed_transaction.get_fee_breakdown(db)
+        block = await db.get_block_from_transaction_id(tx_id)
+        block_confirm_time = await db.get_block_confirm_time(block.height)
 
-    sync_info = await out_of_sync_check(db)
+    fee = transaction.fee
+    if isinstance(fee, Fee):
+        storage_cost, priority_fee = fee.amount
+    elif fee.value is not None:
+        storage_cost, priority_fee = fee.value.amount
+    else:
+        storage_cost, priority_fee = 0, 0
+    namespace_cost = 0
+    finalize_costs = []
+    burnt = 0
+
     ctx: dict[str, Any] = {
         "tx_id": tx_id,
         "tx_id_trunc": str(tx_id)[:12] + "..." + str(tx_id)[-6:],
-        "block": format_block(block),
+        "block": format_block(block) if block else block,
+        "block_confirm_time": block_confirm_time,
         "index": index,
         "type": transaction_type,
         "state": transaction_state,
@@ -303,7 +326,6 @@ async def transaction_route(request: Request):
         "priority_fee": priority_fee,
         "burnt_fee": burnt,
         "reject_reason": await db.get_transaction_reject_reason(tx_id) if transaction_state == "Rejected" else None,
-        "sync_info": sync_info,
     }
 
     if isinstance(transaction, DeployTransaction):
@@ -315,7 +337,7 @@ async def transaction_route(request: Request):
             "program_id": str(program.id),
             "transitions": [{
                 "transition_id": str(transaction.fee.transition.id),
-                "action": await function_signature(db, str(fee_transition.program_id), str(fee_transition.function_name), False),
+                "action": f"{fee_transition.program_id}/{fee_transition.function_name}",
             }],
         })
     elif isinstance(transaction, ExecuteTransaction):
@@ -326,7 +348,7 @@ async def transaction_route(request: Request):
         for transition in transaction.execution.transitions:
             transitions.append({
                 "transition_id": str(transition.id),
-                "action": await function_signature(db, str(transition.program_id), str(transition.function_name), False),
+                "action":f"{transition.program_id}/{transition.function_name}",
             })
             if transition.program_id == "credits.aleo" and transition.function_name == "transfer_public":
                 output = cast(FutureTransitionOutput, transition.outputs[0])
@@ -340,12 +362,12 @@ async def transaction_route(request: Request):
                     "amount": amount
                 }
                 ctx.update({"transaction_type": "transfer"})
-        if transaction.additional_fee.value is not None:
-            additional_fee = transaction.additional_fee.value
-            transition = additional_fee.transition
+        if transaction.fee.value is not None:
+            fee = transaction.fee.value
+            transition = fee.transition
             fee_transition = {
                 "transition_id": str(transition.id),
-                "action": await function_signature(db, str(transition.program_id), str(transition.function_name), False),
+                "action":f"{transition.program_id}/{transition.function_name}",
             }
         else:
             fee_transition = None
@@ -364,7 +386,7 @@ async def transaction_route(request: Request):
         transition = transaction.fee.transition
         transitions.append({
             "transition_id": str(transition.id),
-            "action": await function_signature(db, str(transition.program_id), str(transition.function_name), False),
+            "action":f"{transition.program_id}/{transition.function_name}",
         })
         if isinstance(confirmed_transaction, RejectedExecute):
             rejected = confirmed_transaction.rejected
@@ -389,63 +411,116 @@ async def transaction_route(request: Request):
     else:
         raise HTTPException(status_code=550, detail="Unsupported transaction type")
 
-    fos: list[FinalizeOperation] = []
-    for ct in block.transactions:
-        for fo in ct.finalize:
-            if isinstance(fo, (UpdateKeyValue, RemoveKeyValue)):
-                fos.append(fo)
-    mhs = await db.get_transaction_mapping_history_by_height(block.height)
-    if len(fos) != len(mhs):
-        mapping_operations = None
-    else:
-        indices: list[int] = []
-        for fo in confirmed_transaction.finalize:
-            if isinstance(fo, (UpdateKeyValue, RemoveKeyValue)):
-                indices.append(fos.index(fo))
-        mapping_operations: Optional[list[dict[str, Any]]] = []
-        for i in indices:
-            fo = fos[i]
-            mh = mhs[i]
-            if str(fo.mapping_id) != str(mh["mapping_id"]):
-                mapping_operations = None
-                break
-            if isinstance(fo, UpdateKeyValue):
-                if mh["value"] is None:
+    mapping_operations: Optional[list[dict[str, Any]]] = None
+    if confirmed_transaction is not None:
+        limited_tracking = {
+            cached_get_mapping_id("credits.aleo", "committee"): ("credits.aleo", "committee"),
+            cached_get_mapping_id("credits.aleo", "bonded"): ("credits.aleo", "bonded"),
+        }
+        fos: list[FinalizeOperation] = []
+        untracked_fos: list[FinalizeOperation] = []
+        for ct in block.transactions:
+            for fo in ct.finalize:
+                if isinstance(fo, (UpdateKeyValue, RemoveKeyValue)):
+                    if str(fo.mapping_id) in limited_tracking:
+                        untracked_fos.append(fo)
+                    else:
+                        fos.append(fo)
+        mhs = await db.get_transaction_mapping_history_by_height(block.height)
+        # TODO: remove compatibility after mainnet
+        after_tracking = False
+        if len(fos) + len(untracked_fos) == len(mhs):
+            after_tracking = True
+            fos = []
+            for ct in block.transactions:
+                for fo in ct.finalize:
+                    if isinstance(fo, (UpdateKeyValue, RemoveKeyValue)):
+                        fos.append(fo)
+        if len(fos) == len(mhs):
+            indices: list[int] = []
+            untracked_indices: list[int] = []
+            last_index = -1
+            for fo in confirmed_transaction.finalize:
+                if isinstance(fo, (UpdateKeyValue, RemoveKeyValue)):
+                    if not after_tracking and fo in untracked_fos:
+                        untracked_indices.append(untracked_fos.index(fo))
+                    else:
+                        last_index = fos.index(fo, last_index + 1)
+                        indices.append(last_index)
+            mapping_operations: Optional[list[dict[str, Any]]] = []
+            for i in untracked_indices:
+                fo = untracked_fos[i]
+                program_id, mapping_name = limited_tracking[str(fo.mapping_id)]
+                if isinstance(fo, UpdateKeyValue):
+                    mapping_operations.append({
+                        "type": "Update",
+                        "program_id": program_id,
+                        "mapping_name": mapping_name,
+                        "key": None,
+                        "value": None,
+                        "previous_value": None,
+                    })
+                elif isinstance(fo, RemoveKeyValue):
+                    mapping_operations.append({
+                        "type": "Remove",
+                        "program_id": program_id,
+                        "mapping_name": mapping_name,
+                        "key": None,
+                        "value": None,
+                        "previous_value": None,
+                    })
+            for i in indices:
+                fo = fos[i]
+                mh = mhs[i]
+                if str(fo.mapping_id) != str(mh["mapping_id"]):
                     mapping_operations = None
                     break
-                key_id = aleo_explorer_rust.get_key_id(mh["program_id"], mh["mapping"], mh["key"])
-                value_id = aleo_explorer_rust.get_value_id(str(key_id), mh["value"])
-                if value_id != str(fo.value_id):
-                    mapping_operations = None
-                    break
-                previous_value = await db.get_mapping_history_previous_value(mh["id"], mh["key_id"])
-                if previous_value is not None:
-                    previous_value = str(Value.load(BytesIO(previous_value)))
-                mapping_operations.append({
-                    "type": "Update",
-                    "program_id": mh["program_id"],
-                    "mapping_name": mh["mapping"],
-                    "key": str(Plaintext.load(BytesIO(mh["key"]))),
-                    "value": str(Value.load(BytesIO(mh["value"]))),
-                    "previous_value": previous_value,
-                })
-            elif isinstance(fo, RemoveKeyValue):
-                if mh["value"] is not None:
-                    mapping_operations = None
-                    break
-                previous_value = await db.get_mapping_history_previous_value(mh["id"], mh["key_id"])
-                if previous_value is not None:
-                    previous_value = str(Value.load(BytesIO(previous_value)))
-                else:
-                    mapping_operations = None
-                    break
-                mapping_operations.append({
-                    "type": "Remove",
-                    "program_id": mh["program_id"],
-                    "mapping_name": mh["mapping"],
-                    "key": str(Plaintext.load(BytesIO(mh["key"]))),
-                    "previous_value": previous_value,
-                })
+                limited_tracked = str(fo.mapping_id) in limited_tracking
+                if isinstance(fo, UpdateKeyValue):
+                    if mh["value"] is None:
+                        mapping_operations = None
+                        break
+                    key_id = cached_get_key_id(mh["program_id"], mh["mapping"], mh["key"])
+                    value_id = aleo_explorer_rust.get_value_id(str(key_id), mh["value"])
+                    if value_id != str(fo.value_id):
+                        mapping_operations = None
+                        break
+                    if limited_tracked:
+                        previous_value = None
+                    else:
+                        previous_value = await db.get_mapping_history_previous_value(mh["id"], mh["key_id"])
+                    if previous_value is not None:
+                        previous_value = str(Value.load(BytesIO(previous_value)))
+                    mapping_operations.append({
+                        "type": "Update",
+                        "program_id": mh["program_id"],
+                        "mapping_name": mh["mapping"],
+                        "key": str(Plaintext.load(BytesIO(mh["key"]))),
+                        "value": str(Value.load(BytesIO(mh["value"]))),
+                        "previous_value": previous_value,
+                        "limited_tracked": limited_tracked,
+                    })
+                elif isinstance(fo, RemoveKeyValue):
+                    if mh["value"] is not None:
+                        mapping_operations = None
+                        break
+                    if limited_tracked:
+                        previous_value = None
+                    else:
+                        previous_value = await db.get_mapping_history_previous_value(mh["id"], mh["key_id"])
+                    if previous_value is not None:
+                        previous_value = str(Value.load(BytesIO(previous_value)))
+                    elif not limited_tracked:
+                        mapping_operations = None
+                        break
+                    mapping_operations.append({
+                        "type": "Remove",
+                        "program_id": mh["program_id"],
+                        "mapping_name": mh["mapping"],
+                        "key": str(Plaintext.load(BytesIO(mh["key"]))),
+                        "previous_value": previous_value,
+                        "limited_tracked": limited_tracked,
+                    })
 
     ctx["mapping_operations"] = mapping_operations
 
@@ -488,7 +563,6 @@ async def transition_route(request: Request):
 
     transaction_id = None
     transition = None
-    transaction = None
     state = ""
     for ct in block.transactions:
         if transition is not None:
@@ -502,7 +576,6 @@ async def transition_route(request: Request):
                 if str(tx.fee.transition.id) == ts_id:
                     transition = tx.fee.transition
                     transaction_id = tx.id
-                    transaction = tx
                     break
             case AcceptedExecute():
                 tx = ct.transaction
@@ -513,14 +586,12 @@ async def transition_route(request: Request):
                     if str(ts.id) == ts_id:
                         transition = ts
                         transaction_id = tx.id
-                        transaction = tx
                         break
-                if transaction_id is None and tx.additional_fee.value is not None:
-                    ts = tx.additional_fee.value.transition
+                if transaction_id is None and tx.fee.value is not None:
+                    ts = tx.fee.value.transition
                     if str(ts.id) == ts_id:
                         transition = ts
                         transaction_id = tx.id
-                        transaction = tx
                         break
             case RejectedExecute():
                 tx = ct.transaction
@@ -529,7 +600,6 @@ async def transition_route(request: Request):
                 if str(tx.fee.transition.id) == ts_id:
                     transition = tx.fee.transition
                     transaction_id = tx.id
-                    transaction = tx
                     state = "Accepted"
                 else:
                     rejected = ct.rejected
@@ -539,16 +609,12 @@ async def transition_route(request: Request):
                         if str(ts.id) == ts_id:
                             transition = ts
                             transaction_id = tx.id
-                            transaction = tx
                             state = "Rejected"
                             break
             case _:
                 raise HTTPException(status_code=550, detail="Not implemented")
     if transaction_id is None:
         raise HTTPException(status_code=550, detail="Transition not found in block")
-    if transaction is None:
-        raise HTTPException(status_code=550, detail="Transaction not found in block")
-
     transition = cast(Transition, transition)
 
     program_id = transition.program_id
@@ -673,7 +739,6 @@ async def transition_route(request: Request):
                     "value": f"{future.program_id}/{future.function_name}(...)",
                 })
 
-    sync_info = await out_of_sync_check(db)
     ctx = {
         "ts_id": ts_id,
         "ts_id_trunc": str(ts_id)[:12] + "..." + str(ts_id)[-6:],
@@ -687,7 +752,6 @@ async def transition_route(request: Request):
         "inputs": inputs,
         "outputs": outputs,
         "finalizes": finalizes,
-        "sync_info": sync_info,
     }
     return JSONResponse(ctx)
 
@@ -865,11 +929,9 @@ async def blocks_route(request: Request):
     start = total_blocks - offset
     blocks = await db.get_blocks_range_fast(start, start - limit)
     
-    sync_info = await out_of_sync_check(db)
     ctx = {
         "blocks": [format_number(block) for block in blocks],
         "total_count": total_blocks,
-        "sync_info": sync_info,
     }
     return JSONResponse(ctx)
 
@@ -934,10 +996,8 @@ async def unconfirmed_transactions_route(request: Request):
             "first_seen": await db.get_transaction_first_seen(str(tx.id)),
         })
 
-    sync_info = await out_of_sync_check(db)
     ctx = {
         "transactions": transactions,
         "totalCount": total_transactions,
-        "sync_info": sync_info,
     }    
     return JSONResponse(ctx)

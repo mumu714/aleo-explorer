@@ -127,6 +127,23 @@ class DatabaseAddress(DatabaseBase):
                     await self.message_callback(ExplorerMessage(ExplorerMessage.Type.DatabaseError, e))
                     raise
 
+    async def get_solution_total_target_by_height(self, height: int) -> int:
+        async with self.pool.connection() as conn:
+            async with conn.cursor() as cur:
+                try:
+                    await cur.execute(
+                        "SELECT SUM(s.target) as total_target FROM solution s "
+                        "JOIN puzzle_solution ps on ps.id = s.puzzle_solution_id "
+                        "JOIN block b on b.id = ps.block_id "
+                        "WHERE b.height = %s", (height,)
+                    )
+                    if (res := await cur.fetchone()) is None:
+                        return 0
+                    return res["total_target"]
+                except Exception as e:
+                    await self.message_callback(ExplorerMessage(ExplorerMessage.Type.DatabaseError, e))
+                    raise
+
     async def get_solution_by_height(self, height: int, start: int, end: int) -> list[dict[str, Any]]:
         async with self.pool.connection() as conn:
             async with conn.cursor() as cur:
@@ -424,7 +441,7 @@ LIMIT 10
                 now = int(time.time())
                 try:
                     await cur.execute(
-                        "SELECT ps.reward FROM solution s "
+                        "SELECT s.reward FROM solution s "
                         "JOIN puzzle_solution ps ON ps.id = s.puzzle_solution_id "
                         "JOIN block b ON ps.block_id = b.id "
                         "WHERE address = %s AND timestamp > %s",
