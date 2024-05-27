@@ -39,7 +39,6 @@ class DatabaseUtil(DatabaseBase):
                 await conn.execute("TRUNCATE TABLE mapping_history_last_id RESTART IDENTITY CASCADE")
                 await conn.execute("TRUNCATE TABLE committee_history RESTART IDENTITY CASCADE")
                 await conn.execute("TRUNCATE TABLE committee_history_member RESTART IDENTITY CASCADE")
-                await conn.execute("TRUNCATE TABLE leaderboard RESTART IDENTITY CASCADE")
                 await conn.execute("TRUNCATE TABLE mapping_bonded_history RESTART IDENTITY CASCADE")
                 await conn.execute("TRUNCATE TABLE mapping_committee_history RESTART IDENTITY CASCADE")
                 await conn.execute("TRUNCATE TABLE mapping_delegated_history RESTART IDENTITY CASCADE")
@@ -211,22 +210,6 @@ class DatabaseUtil(DatabaseBase):
                                         "WHERE p.program_id = %s AND p.id = pf.program_id AND pf.name = %s",
                                         (str(ts.program_id), str(ts.function_name))
                                     )
-                            # TODO: change leaderboard to something else, we dont need that on mainnet
-                            # revert leaderboard
-                            await cur.execute(
-                                "SELECT address, reward FROM solution s "
-                                "JOIN puzzle_solution ps ON ps.id = s.puzzle_solution_id "
-                                "JOIN block b ON b.id = ps.block_id "
-                                "WHERE b.height = %s",
-                                (block.height,)
-                            )
-                            for item in await cur.fetchall():
-                                address = item["address"]
-                                reward = item["reward"]
-                                await cur.execute(
-                                    "UPDATE leaderboard SET total_reward = total_reward - %s WHERE address = %s",
-                                    (reward, address)
-                                )
                             await cur.execute(
                                 "SELECT dv.id FROM dag_vertex dv "
                                 "JOIN authority au on dv.authority_id = au.id "

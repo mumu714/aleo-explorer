@@ -1212,26 +1212,6 @@ ALTER SEQUENCE explorer.future_id_seq OWNED BY explorer.future.id;
 
 
 --
--- Name: leaderboard; Type: TABLE; Schema: explorer; Owner: -
---
-
-CREATE TABLE explorer.leaderboard (
-    address text NOT NULL,
-    total_reward numeric(20,0) DEFAULT 0 NOT NULL,
-    total_incentive numeric(20,0) DEFAULT 0 NOT NULL
-);
-
-
---
--- Name: leaderboard_total; Type: TABLE; Schema: explorer; Owner: -
---
-
-CREATE TABLE explorer.leaderboard_total (
-    total_credit numeric(20,0) DEFAULT 0 NOT NULL
-);
-
-
---
 -- Name: mapping; Type: TABLE; Schema: explorer; Owner: -
 --
 
@@ -2710,13 +2690,6 @@ ALTER TABLE ONLY explorer.future
 
 
 --
--- Name: leaderboard leaderboard_pk; Type: CONSTRAINT; Schema: explorer; Owner: -
---
-
-ALTER TABLE ONLY explorer.leaderboard
-    ADD CONSTRAINT leaderboard_pk PRIMARY KEY (address);
-
---
 -- Name: hashrate hashrate_pk; Type: CONSTRAINT; Schema: explorer; Owner: -
 --
 
@@ -3368,34 +3341,6 @@ CREATE INDEX future_transition_output_future_id_index ON explorer.future USING b
 --
 
 CREATE INDEX future_type_index ON explorer.future USING btree (type);
-
-
---
--- Name: mapping_bonded_history_content_index; Type: INDEX; Schema: explorer; Owner: -
---
-
-CREATE INDEX mapping_bonded_history_content_index ON explorer.mapping_bonded_history USING gin (content);
-
-
---
--- Name: leaderboard_address_index; Type: INDEX; Schema: explorer; Owner: -
---
-
-CREATE INDEX leaderboard_address_index ON explorer.leaderboard USING btree (address text_pattern_ops);
-
-
---
--- Name: leaderboard_total_incentive_index; Type: INDEX; Schema: explorer; Owner: -
---
-
-CREATE INDEX leaderboard_total_incentive_index ON explorer.leaderboard USING btree (total_incentive);
-
-
---
--- Name: leaderboard_total_reward_index; Type: INDEX; Schema: explorer; Owner: -
---
-
-CREATE INDEX leaderboard_total_reward_index ON explorer.leaderboard USING btree (total_reward);
 
 
 --
