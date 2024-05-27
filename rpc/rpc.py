@@ -66,7 +66,7 @@ async def index_route(request: Request):
     sync_info = await out_of_sync_check(request.app.state.session, db)
     latest_block = await db.get_latest_block()
     validators_count = await db.get_validators_size()
-    provers_count = await db.get_leaderboard_size()
+    provers_count, _ = await db.get_puzzle_reward_all()
     delegators = await db.get_bonded_mapping()
     total_stake = await db.get_total_stake()
     puzzle_reward_24H = await db.get_24H_puzzle_reward()

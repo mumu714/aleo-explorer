@@ -88,7 +88,7 @@ async def credits_route(request: Request):
     credits_leaderboard = await db.get_credits_leaderboard(offset, offset + limit)
     data: list[dict[str, Any]] = []
     for line in credits_leaderboard:
-        total_rewards, _ = await db.get_leaderboard_rewards_by_address(line["address"])
+        total_rewards = await db.get_puzzle_reward_by_address(line["address"])
         address_type = await get_address_type(db, line["address"])
         if address_type == "Validator":
             stake_reward = await db.get_address_stake_reward(line["address"])
@@ -140,17 +140,16 @@ async def reward_route(request: Request):
     all_data: list[dict[str, Any]] = []
     data: list[dict[str, Any]] = []
     if type == "all":
-        address_count = await db.get_leaderboard_size()
+        address_count, leaderboard_data = await db.get_puzzle_reward_all()
         if offset < 0 or offset > address_count:
             raise HTTPException(status_code=400, detail="Invalid page")
-        leaderboard_data = await db.get_leaderboard(offset, offset + limit)
-        for line in leaderboard_data:
-            address_type = await get_address_type(db, line["address"])
+        for address, total_reward  in leaderboard_data.items():
+            address_type = await get_address_type(db, address)
             data.append({
-                "address": line["address"],
+                "address": address,
                 "address_type": address_type,
-                "reward": int(line["total_reward"]),
-                "total_reward": int(line["total_reward"]),
+                "reward": int(total_reward),
+                "total_reward": int(total_reward),
             })
     else:
         solutions = await db.get_solutions_by_time(now - interval[type])
@@ -160,7 +159,7 @@ async def reward_route(request: Request):
             raise HTTPException(status_code=400, detail="Invalid page")
         for address in address_list:
             cur_solution = [solution for solution in solutions if solution["address"] == address]
-            total_rewards, _ = await db.get_leaderboard_rewards_by_address(address)
+            total_rewards = await db.get_puzzle_reward_by_address(address)
             address_type = await get_address_type(db, address)
             all_data.append({
                 "address": address,
@@ -177,7 +176,7 @@ async def reward_route(request: Request):
 
     target_credit = 37_500_000_000_000
     ctx = {
-        "leaderboard": data,
+        "leaderboard": sorted(data, key = lambda i: i['reward'],reverse=True) ,
         "address_count": address_count,
         "target_credit": target_credit,
         "now": now,
@@ -1057,7 +1056,7 @@ async def biggest_miners_route(request: Request):
             offset = int(offset)
     except:
         raise HTTPException(status_code=400, detail="Invalid page")
-    address_count = await db.get_leaderboard_size()
+    address_count, _ = await db.get_puzzle_reward_all()
     if offset < 0 or offset > address_count:
         raise HTTPException(status_code=400, detail="Invalid page")
     address_hashrate = await db.get_15min_top_miner(offset, offset + limit)

@@ -23,5 +23,4 @@ Disallow: /program
 Disallow: /programs
 Disallow: /similar_programs
 Disallow: /upload_source
-Disallow: /leaderboard
 Crawl-delay: 5

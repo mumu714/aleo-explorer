@@ -15,48 +15,10 @@ class DatabaseAddress(DatabaseBase):
         if data is None:
             return 0
         return int(data)
-
-    async def get_leaderboard_size(self) -> int:
-        async with self.pool.connection() as conn:
-            async with conn.cursor() as cur:
-                try:
-                    await cur.execute("SELECT COUNT(*) FROM leaderboard")
-                    if (res := await cur.fetchone()) is None:
-                        return 0
-                    return res["count"]
-                except Exception as e:
-                    await self.message_callback(ExplorerMessage(ExplorerMessage.Type.DatabaseError, e))
-                    raise
-
-    async def get_leaderboard(self, start: int, end: int) -> list[dict[str, Any]]:
-        async with self.pool.connection() as conn:
-            async with conn.cursor() as cur:
-                try:
-                    await cur.execute(
-                        "SELECT * FROM leaderboard "
-                        "ORDER BY total_reward DESC "
-                        "LIMIT %s OFFSET %s",
-                        (end - start, start)
-                    )
-                    return await cur.fetchall()
-                except Exception as e:
-                    await self.message_callback(ExplorerMessage(ExplorerMessage.Type.DatabaseError, e))
-                    raise
-
-    async def get_leaderboard_rewards_by_address(self, address: str) -> tuple[int, int]:
-        async with self.pool.connection() as conn:
-            async with conn.cursor() as cur:
-                try:
-                    await cur.execute(
-                        "SELECT total_reward, total_incentive FROM leaderboard WHERE address = %s", (address,)
-                    )
-                    row = await cur.fetchone()
-                    if row is None:
-                        return 0, 0
-                    return row["total_reward"], row["total_incentive"]
-                except Exception as e:
-                    await self.message_callback(ExplorerMessage(ExplorerMessage.Type.DatabaseError, e))
-                    raise
+    
+    async def get_puzzle_reward_all(self):
+        data = await self.redis.hgetall("address_puzzle_reward")
+        return len(data), data
 
     async def get_recent_solutions_by_address(self, address: str) -> list[dict[str, Any]]:
         async with self.pool.connection() as conn:
@@ -368,20 +330,6 @@ LIMIT 10
                     for height in heights:
                         total_solutions += ref_proof_target_dict[height - 1]
                     return total_solutions / interval
-                except Exception as e:
-                    await self.message_callback(ExplorerMessage(ExplorerMessage.Type.DatabaseError, e))
-                    raise
-
-    async def get_leaderboard_total(self) -> int:
-        async with self.pool.connection() as conn:
-            async with conn.cursor() as cur:
-                try:
-                    await cur.execute("SELECT total_credit FROM leaderboard_total")
-                    total_credit = await cur.fetchone()
-                    if total_credit is None:
-                        await cur.execute("INSERT INTO leaderboard_total (total_credit) VALUES (0)")
-                        return 0
-                    return int(total_credit["total_credit"])
                 except Exception as e:
                     await self.message_callback(ExplorerMessage(ExplorerMessage.Type.DatabaseError, e))
                     raise
