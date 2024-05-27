@@ -12,30 +12,37 @@ from typing import cast
 
 def get_relative_time(timestamp: int):
     now = time.time()
-    delta = now - timestamp
-    if delta < 60:
+    delta = int(now - timestamp)
+    if delta == 0:
+        return "just now"
+    elif delta == 1:
+        return "1 second ago"
+    elif delta < 60:
         return f"{int(delta)} seconds ago"
     delta = delta // 60
-    if delta < 60:
+    if delta == 1:
+        return "1 minute ago"
+    elif delta < 60:
         return f"{int(delta)} minutes ago"
     delta = delta // 60
+    if delta == 1:
+        return "1 hour ago"
     return f"{int(delta)} hours ago"
 
 
-async def get_remote_height(rpc_root: str) -> str:
+async def get_remote_height(session: aiohttp.ClientSession, rpc_root: str) -> str:
     try:
-        async with aiohttp.ClientSession() as session:
-            async with session.get(f"{rpc_root}/testnet3/latest/height") as resp:
-                if resp.status == 200:
-                    remote_height = await resp.text()
-                else:
-                    remote_height = "?"
+        async with session.get(f"{rpc_root}/testnet/latest/height") as resp:
+            if resp.status == 200:
+                remote_height = await resp.text()
+            else:
+                remote_height = "?"
     except:
         remote_height = "?"
     return remote_height
 
 
-async def out_of_sync_check(db: Database):
+async def out_of_sync_check(session: aiohttp.ClientSession, db: Database):
     last_timestamp, last_height = await asyncio.gather(
         db.get_latest_block_timestamp(),
         db.get_latest_height()
@@ -47,9 +54,9 @@ async def out_of_sync_check(db: Database):
     reference_height = None
     if out_of_sync:
         if rpc_root := os.environ.get("RPC_URL_ROOT"):
-            node_height = await get_remote_height(rpc_root)
+            node_height = await get_remote_height(session, rpc_root)
         if ref_rpc_root := os.environ.get("REF_RPC_URL_ROOT"):
-            reference_height = await get_remote_height(ref_rpc_root)
+            reference_height = await get_remote_height(session, ref_rpc_root)
 
     return {
         "out_of_sync": out_of_sync,
@@ -61,7 +68,7 @@ async def out_of_sync_check(db: Database):
     }
 
 
-async def function_signature(db: Database, program_id: str, function_name: str, with_params: bool = True):
+async def function_signature(db: Database, program_id: str, function_name: str):
     data = await function_definition(db, program_id, function_name)
     if isinstance(data, str):
         return data
@@ -82,8 +89,6 @@ async def function_signature(db: Database, program_id: str, function_name: str, 
         else:
             outputs.append(f"{mode} {name}")
     finalizes = data["finalize"]
-    if not with_params:
-        return f"{program_id}/{function_name}"
     result = f"{program_id}/{function_name}({', '.join(inputs)})"
     if len(outputs) == 1:
         result += f" -> {outputs[0]}"

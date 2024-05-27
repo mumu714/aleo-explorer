@@ -11,7 +11,7 @@ from starlette.responses import JSONResponse
 import disasm.aleo
 from aleo_types import DeployTransaction, Deployment, Program, \
     AcceptedDeploy, u32, AcceptedExecute, RejectedExecute, ExecuteTransaction, \
-    FeeTransaction, RejectedExecution
+    FeeTransaction, RejectedExecution, Fee
 from db import Database
 from .utils import function_signature, out_of_sync_check
 from .format import *
@@ -46,12 +46,10 @@ async def programs_route(request: Request):
         if builtin_program["program_id"] == "credits.aleo":
             builtin_program["height"] = 0
 
-    sync_info = await out_of_sync_check(db)
     ctx = {
         "programs": [format_number(program) for program in programs + builtin_programs],
         "total_programs": total_programs,
         "no_helloworld": no_helloworld,
-        "sync_info": sync_info,
     }
     return JSONResponse(ctx)
 
@@ -102,51 +100,33 @@ async def program_route(request: Request):
             "value_type": str(mapping.value.plaintext_type)
         })
     recent_calls = await db.get_program_calls(program_id, 0, 10)
+    print(recent_calls)
     for call in recent_calls:
-        call_height = call["height"]
-        block = await db.get_block_by_height(u32(int(call_height)))
-        priority_fee = 0
-        base_fee = 0
-        if block:
-            for ct in block.transactions:
-                match ct:
-                    case AcceptedDeploy():
-                        tx = ct.transaction
-                        if not isinstance(tx, DeployTransaction):
-                            raise HTTPException(status_code=550, detail="Invalid transaction type")
-                        if str(tx.fee.transition.id) == call["transition_id"]:
-                            base_fee, priority_fee = tx.fee.amount
-                            break
-                    case AcceptedExecute():
-                        tx = ct.transaction
-                        if not isinstance(tx, ExecuteTransaction):
-                            raise HTTPException(status_code=550, detail="Invalid transaction type")
-                        additional_fee = tx.additional_fee.value
-                        if additional_fee is not None:
-                            ts = additional_fee.transition
-                            if str(ts.id) == call["transition_id"]:
-                                base_fee, priority_fee = additional_fee.amount
-                                break
-                    case RejectedExecute():
-                        tx = ct.transaction
-                        if not isinstance(tx, FeeTransaction):
-                            raise HTTPException(status_code=550, detail="Invalid transaction type")
-                        if str(tx.fee.transition.id) == call["transition_id"]:
-                            base_fee, priority_fee = tx.fee.amount
-                        else:
-                            rejected = ct.rejected
-                            if not isinstance(rejected, RejectedExecution):
-                                raise HTTPException(status_code=550, detail="Database inconsistent")
-                            for ts in rejected.execution.transitions:
-                                if str(ts.id) == call["transition_id"]:
-                                    base_fee, priority_fee = tx.fee.amount
-                                    break
-                    case _:
-                        raise HTTPException(status_code=550, detail="Unsupported transaction type")
+        call_tx_id = call["transaction_id"]
+        call_tx_id = await db.get_updated_transaction_id(call_tx_id)
+        is_confirmed = await db.is_transaction_confirmed(call_tx_id)
+        if is_confirmed is None:
+            raise HTTPException(status_code=404, detail="Transaction not found")
+        if is_confirmed:
+            call_confirmed_transaction = await db.get_confirmed_transaction(call_tx_id)
+            if call_confirmed_transaction is None:
+                raise HTTPException(status_code=550, detail="Database inconsistent")
+            call_transaction = call_confirmed_transaction.transaction
+        else:
+            call_confirmed_transaction = None
+            call_transaction = await db.get_unconfirmed_transaction(call_tx_id)
+            if call_transaction is None:
+                raise HTTPException(status_code=404, detail="Transaction not found")
+        fee = call_transaction.fee
+        if isinstance(fee, Fee):
+            base_fee, priority_fee = fee.amount
+        elif fee.value is not None:
+            base_fee, priority_fee = fee.value.amount
+        else:
+            base_fee, priority_fee = 0, 0
         call.update({
             "fee": base_fee+priority_fee
         })
-    sync_info = await out_of_sync_check(db)
     ctx: dict[str, Any] = {
         "program_id": str(program.id),
         "times_called": int(await db.get_program_called_times(program_id)),
@@ -160,10 +140,15 @@ async def program_route(request: Request):
         "has_leo_source": has_leo_source,
         "recent_calls": recent_calls,
         "similar_count": await db.get_program_similar_count(program_id),
-        "sync_info": sync_info,
     }
     if transaction:
-        base_fee, priority_fee = transaction.fee.amount
+        fee = transaction.fee
+        if isinstance(fee, Fee):
+            base_fee, priority_fee = fee.amount
+        elif fee.value is not None:
+            base_fee, priority_fee = fee.value.amount
+        else:
+            base_fee, priority_fee = 0, 0
         ctx.update({
             "height": str(height),
             "timestamp": deploy_time,
@@ -212,12 +197,10 @@ async def program_transitions_route(request: Request):
     if offset < 0 or offset > called_times:
         raise HTTPException(status_code=400, detail="Invalid page")
     calls = await db.get_program_calls(program_id, offset, offset + limit)
-    sync_info = await out_of_sync_check(db)
     ctx = {
         "program_id": program_id,
         "times_called": called_times,
         "calls": calls,
-        "sync_info": sync_info,
     }
     return JSONResponse(ctx)
 
@@ -245,13 +228,11 @@ async def similar_programs_route(request: Request):
     start = 50 * (page - 1)
     programs = await db.get_programs_with_feature_hash(feature_hash, start, start + 50)
 
-    sync_info = await out_of_sync_check(db)
     ctx = {
         "program_id": program_id,
         "programs": programs,
         "page": page,
         "total_pages": total_pages,
-        "sync_info": sync_info,
     }
     return JSONResponse(ctx)
 
@@ -284,7 +265,6 @@ async def upload_source_route(request: Request):
             else:
                 import_programs.append(None)
     message = request.query_params.get("message")
-    sync_info = await out_of_sync_check(db)
     ctx = {
         "program_id": program_id,
         "imports": imports,
@@ -292,7 +272,6 @@ async def upload_source_route(request: Request):
         "has_leo_source": has_leo_source,
         "message": message,
         "source": source,
-        "sync_info": sync_info,
     }
     return JSONResponse(ctx)
 
@@ -320,8 +299,8 @@ async def submit_source_route(request: Request):
     try:
         compiled = aleo_explorer_rust.compile_program(source, program_id.split(".")[0], import_data)
     except RuntimeError as e:
-        if len(str(e)) > 200:
-            msg = str(e)[:200] + "[trimmed]"
+        if len(str(e)) > 255:
+            msg = str(e)[:255] + "[trimmed]"
         else:
             msg = str(e)
         return RedirectResponse(url=f"/upload_source?id={program_id}&message=Failed to compile source code: {msg}")
