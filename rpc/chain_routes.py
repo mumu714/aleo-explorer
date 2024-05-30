@@ -781,6 +781,17 @@ async def transitions_route(request: Request):
     }
     return JSONResponse(ctx)
 
+async def solution_route(request: Request):
+    db: Database = request.app.state.db
+    solution_id = request.query_params.get("id")
+    if not solution_id:
+        return HTTPException(400, "Missing Solution Id")
+    solution = await db.get_puzzle_commitment(solution_id)
+    ctx = {
+        "solution": format_number(solution) if solution else None
+    }
+    return JSONResponse(ctx)
+
 async def search_route(request: Request):
     db: Database = request.app.state.db
     query = request.query_params.get("q")
@@ -885,6 +896,24 @@ async def search_route(request: Request):
             "query": query,
             "type": "address",
             "address": address
+        }
+        return JSONResponse(ctx)
+    elif query.startswith("solution1"):
+        # solution id
+        solutions = await db.search_solution_id(query)
+        if not solutions:
+            raise HTTPException(status_code=404, detail="Solution not found")
+        if len(solutions) == 1:
+            return RedirectResponse(f"/solution?id={solutions[0]}{remaining_query}", status_code=302)
+        too_many = False
+        if len(solutions) > 50:
+            solutions = solutions[:50]
+            too_many = True
+        ctx = {
+            "query": query,
+            "type": "solution",
+            "solutions": solutions,
+            "too_many": too_many,
         }
         return JSONResponse(ctx)
     else:

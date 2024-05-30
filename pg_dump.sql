@@ -3533,6 +3533,13 @@ CREATE INDEX solution_puzzle_solution_id_index ON explorer.solution USING btree 
 
 
 --
+-- Name: solution_puzzle_solution_id_index; Type: INDEX; Schema: explorer; Owner: -
+--
+
+CREATE INDEX solution_solution_id_index ON explorer.solution USING btree (solution_id);
+
+
+--
 -- Name: transaction_confirmed_transaction_id_index; Type: INDEX; Schema: explorer; Owner: -
 --
 

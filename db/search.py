@@ -47,6 +47,16 @@ class DatabaseSearch(DatabaseBase):
                     await self.message_callback(ExplorerMessage(ExplorerMessage.Type.DatabaseError, e))
                     raise
 
+    async def search_solution_id(self, solution_id: str) -> list[str]:
+        async with self.pool.connection() as conn:
+            async with conn.cursor() as cur:
+                try:
+                    await cur.execute("SELECT solution_id FROM solution WHERE solution_id LIKE %s", (f"{solution_id}%",))
+                    result = await cur.fetchall()
+                    return list(map(lambda x: x['solution_id'], result))
+                except Exception as e:
+                    await self.message_callback(ExplorerMessage(ExplorerMessage.Type.DatabaseError, e))
+                    raise
 
     async def search_address(self, address: str) -> list[str]:
         async with self.pool.connection() as conn:

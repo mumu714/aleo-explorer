@@ -99,7 +99,8 @@ class DatabaseAddress(DatabaseBase):
                         "JOIN block b on b.id = ps.block_id "
                         "WHERE b.height = %s", (height,)
                     )
-                    if (res := await cur.fetchone()) is None:
+                    res = await cur.fetchone()
+                    if res is None or res["total_target"] is None:
                         return 0
                     return res["total_target"]
                 except Exception as e:
@@ -334,24 +335,21 @@ LIMIT 10
                     await self.message_callback(ExplorerMessage(ExplorerMessage.Type.DatabaseError, e))
                     raise
 
-    async def get_puzzle_commitment(self, commitment: str) -> Optional[dict[str, Any]]:
+    async def get_puzzle_commitment(self, solution_id: str) -> Optional[dict[str, Any]]:
         async with self.pool.connection() as conn:
             async with conn.cursor() as cur:
                 try:
                     await cur.execute(
-                        "SELECT reward, height FROM solution s"
+                        "SELECT height, block_hash, reward, address, target_sum, solution_id FROM solution s "
                         "JOIN puzzle_solution ps on s.puzzle_solution_id = ps.id "
                         "JOIN block b on b.id = ps.block_id "
-                        "WHERE commitment = %s",
-                        (commitment,)
+                        "WHERE solution_id = %s",
+                        (solution_id,)
                     )
                     row = await cur.fetchone()
                     if row is None:
                         return None
-                    return {
-                        'reward': row['reward'],
-                        'height': row['height']
-                    }
+                    return row
                 except Exception as e:
                     await self.message_callback(ExplorerMessage(ExplorerMessage.Type.DatabaseError, e))
                     raise
