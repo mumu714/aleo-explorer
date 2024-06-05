@@ -53,7 +53,7 @@ class UvicornServer(multiprocessing.Process):
 
 async def index_route(request: Request):
     db: Database = request.app.state.db
-    recent_blocks = await db.get_recent_blocks_fast()
+    recent_blocks = await db.get_recent_blocks_fast(10)
     network_speed = await db.get_network_speed(900)
     sync_info = await out_of_sync_check(request.app.state.session, db)
     latest_block = await db.get_latest_block()
@@ -64,6 +64,11 @@ async def index_route(request: Request):
     puzzle_reward_24H = await db.get_24H_puzzle_reward()
     block_reward_24H = await db.get_24H_block_reward()
     puzzle_reward_1M = await db.get_24H_puzzle_reward_1M()
+
+    def get_reward(block: dict[str, Any]):
+        block["reward"] = block["block_reward"] + block["coinbase_reward"]  * 2 // 3
+        return block
+    recent_blocks = [get_reward(block) for block in recent_blocks]
     ctx = {
         "latest_block": format_block(latest_block),
         "validators_count": validators_count,

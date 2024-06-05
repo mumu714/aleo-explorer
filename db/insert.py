@@ -1968,7 +1968,7 @@ class DatabaseInsert(DatabaseBase):
                     now = int(time.time())
                     await cur.execute("SELECT * FROM block WHERE timestamp > %s ORDER BY height DESC", (now - 86400,))
                     all_blocks = await cur.fetchall()
-                    puzzle_rewards = sum(block["coinbase_reward"] // 2 for block in all_blocks)
+                    puzzle_rewards = sum(block["coinbase_reward"] * 2 // 3 for block in all_blocks)
                     block_reward = sum(block["block_reward"] for block in all_blocks)
                     hashrate_24h = await DatabaseAddress.get_network_speed(self, 86400)
                     puzzle_rewards_1M = (float(puzzle_rewards) / float(hashrate_24h)) * 1_000_000 if hashrate_24h else 0
