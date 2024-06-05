@@ -502,7 +502,7 @@ LIMIT 10
                     )
                     coinbase_rewards = await cur.fetchall()
                     reward = sum(list(map(lambda x: x['coinbase_reward'] if x['coinbase_reward'] else 0, coinbase_rewards)))
-                    return reward // 2
+                    return reward  * 2 // 3
                 except Exception as e:
                     await self.message_callback(ExplorerMessage(ExplorerMessage.Type.DatabaseError, e))
                     raise

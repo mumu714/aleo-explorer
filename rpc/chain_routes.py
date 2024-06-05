@@ -56,8 +56,6 @@ async def block_route(request: Request):
     height = int(height)
 
     coinbase_reward = await db.get_block_coinbase_reward_by_height(height)
-    if coinbase_reward is not None:
-        coinbase_reward = coinbase_reward // 2
     txs: DictList = []
     total_base_fee = 0
     total_priority_fee = 0
@@ -957,7 +955,11 @@ async def blocks_route(request: Request):
         raise HTTPException(status_code=400, detail="Invalid page")
     start = total_blocks - offset
     blocks = await db.get_blocks_range_fast(start, start - limit)
-    
+
+    def get_reward(block: dict[str, Any]):
+        block["reward"] = block["block_reward"] + block["coinbase_reward"]  * 2 // 3
+        return block
+    blocks = [get_reward(block) for block in blocks]
     ctx = {
         "blocks": [format_number(block) for block in blocks],
         "total_count": total_blocks,
