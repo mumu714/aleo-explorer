@@ -106,17 +106,15 @@ class DatabaseInsert(DatabaseBase):
                 for row_add in await cur.fetchall():
                     if "fee" in row_add["function_name"]:
                         await cur.execute(
-                            "INSERT INTO address (address, fee_ts_num) VALUES (%s, %s) "
-                            "ON CONFLICT (address) DO UPDATE SET fee_ts_num = address.fee_ts_num - %s "
+                            "UPDATE address SET fee_ts_num = fee_ts_num - %s WHERE address = %s "
                             "RETURNING functions, fee_ts_num",
-                            (row_add["address"], 1, 1)
+                            (1, row_add["address"])
                         )
                     else:
                         await cur.execute(
-                            "INSERT INTO address (address, execution_ts_num) VALUES (%s, %s) "
-                            "ON CONFLICT (address) DO UPDATE SET execution_ts_num = address.execution_ts_num - %s "
+                            "UPDATE address SET execution_ts_num = execution_ts_num - %s WHERE address = %s "
                             "RETURNING functions, execution_ts_num",
-                            (row_add["address"], 1, 1)
+                            (1, row_add["address"])
                         )
                     if await cur.fetchone() is None:
                         raise RuntimeError("failed to update row into database")
@@ -592,17 +590,17 @@ class DatabaseInsert(DatabaseBase):
                                     res.append(row)
                     else:
                         res = []
-                    for row in res:
-                        print("removing strange unconfirmed transaction:", row["transaction_id"])
-                        await DatabaseInsert._cleanup_unconfirmed_address_transition(conn, row["id"])
-                        await cur.execute(
-                            "DELETE FROM transition WHERE transaction_id = %s",
-                            (row["id"],)
-                        )
-                        await cur.execute(
-                            "DELETE FROM transaction WHERE id = %s",
-                            (row["id"],)
-                        )
+                    # for row in res:
+                    #     print("removing strange unconfirmed transaction:", row["transaction_id"])
+                    #     await DatabaseInsert._cleanup_unconfirmed_address_transition(conn, row["id"])
+                    #     await cur.execute(
+                    #         "DELETE FROM transition WHERE transaction_id = %s",
+                    #         (row["id"],)
+                    #     )
+                    #     await cur.execute(
+                    #         "DELETE FROM transaction WHERE id = %s",
+                    #         (row["id"],)
+                    #     )
 
                 if isinstance(transaction, FeeTransaction): # check probable rejected unconfirmed transaction
                     if confirmed_transaction is None:
@@ -1799,6 +1797,8 @@ class DatabaseInsert(DatabaseBase):
                 )
 
     async def save_block(self, block: Block):
+        if block.height % 1000 == 0:
+            await self.cleanup_unconfirmed_transactions()
         await self._save_block(block)
 
     async def save_unconfirmed_transaction(self, transaction: Transaction):
