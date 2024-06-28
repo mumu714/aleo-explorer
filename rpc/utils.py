@@ -114,21 +114,11 @@ async def get_address_type(db: Database, address: str):
     address_key_bytes = address_key.dump()
     committee_key_id = aleo_explorer_rust.get_key_id("credits.aleo", "committee", address_key_bytes)
     committee_state_bytes = await db.get_mapping_value("credits.aleo", "committee", committee_key_id)
-    if committee_state_bytes is None:
-        committee_state = None
-    else:
-        value = cast(PlaintextValue, Value.load(BytesIO(committee_state_bytes)))
-        plaintext = cast(StructPlaintext, value.plaintext)
-        amount = cast(LiteralPlaintext, plaintext["microcredits"])
-        is_open = cast(LiteralPlaintext, plaintext["is_open"])
-        committee_state = {
-            "amount": int(amount.literal.primitive),
-            "is_open": bool(is_open.literal.primitive),
-        }
+    
     address_type = ""
     solution_count = await db.get_solution_count_by_address(address)
     program_count = await db.get_program_count_by_address(address)
-    if committee_state:
+    if committee_state_bytes:
         address_type = "Validator"
     elif solution_count > 0:
         address_type = "Prover"
