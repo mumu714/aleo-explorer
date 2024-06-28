@@ -55,6 +55,7 @@ class DatabaseInsert(DatabaseBase):
             "credits.aleo:committee",
             "address_stake_reward",
             "address_puzzle_reward",
+            "address_delegate_reward",
             "address_transfer_in",
             "address_transfer_out",
             "address_fee",
@@ -1067,6 +1068,20 @@ class DatabaseInsert(DatabaseBase):
                 cast(u8, commission.literal.primitive),
             )
         return committee_members
+
+    @staticmethod
+    async def _get_delegated_mapping_unchecked(redis_conn: Redis[str]) -> dict[Address, u64]:
+        data = await redis_conn.hgetall("credits.aleo:delegated")
+        delegators: dict[Address, u64] = {}
+        for d in data.values():
+            d = json.loads(d)
+            key = cast(LiteralPlaintext, Plaintext.load(BytesIO(bytes.fromhex(d["key"]))))
+            value = cast(PlaintextValue, Value.load(BytesIO(bytes.fromhex(d["value"]))))
+            plaintext = cast(LiteralPlaintext, value.plaintext)
+            delegators[cast(Address, key.literal.primitive)] = cast(u64, plaintext.literal.primitive)
+        return delegators
+
+
 
     @staticmethod
     async def _get_delegated_mapping_unchecked(redis_conn: Redis[str]) -> dict[Address, u64]:
