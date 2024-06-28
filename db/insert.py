@@ -805,12 +805,16 @@ class DatabaseInsert(DatabaseBase):
 
         global_mapping_cache[committee_mapping_id] = {}
         committee_mapping: dict[str, dict[str, str]] = {}
-        for address, (_, is_open, commission) in committee_members.items():
+        for address, (amount, is_open, commission) in committee_members.items():
             key = LiteralPlaintext(literal=Literal(type_=Literal.Type.Address, primitive=address))
             key_id = Field.loads(cached_get_key_id("credits.aleo", "committee", key.dump()))
             value = PlaintextValue(
                 plaintext=StructPlaintext(
                     members=Vec[Tuple[Identifier, Plaintext], u8]([
+                        Tuple[Identifier, Plaintext]((
+                            Identifier.loads("microcredits"),
+                            LiteralPlaintext(literal=Literal(type_=Literal.Type.U64, primitive=amount))
+                        )),
                         Tuple[Identifier, Plaintext]((
                             Identifier.loads("is_open"),
                             LiteralPlaintext(literal=Literal(type_=Literal.Type.Boolean, primitive=is_open))
