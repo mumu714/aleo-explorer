@@ -55,6 +55,7 @@ class DatabaseInsert(DatabaseBase):
             "credits.aleo:committee",
             "address_stake_reward",
             "address_puzzle_reward",
+            "address_incentive_puzzle_reward",
             "address_delegate_reward",
             "address_transfer_in",
             "address_transfer_out",
@@ -1672,6 +1673,16 @@ class DatabaseInsert(DatabaseBase):
                                 for address, reward in address_puzzle_rewards.items():
                                     pipe = self.redis.pipeline()
                                     pipe.hincrby("address_puzzle_reward", address, reward)
+                                    if block.height >= 62196 and block.header.metadata.timestamp < 1721059200:
+                                        current_data = await self.redis.hget("address_incentive_puzzle_reward", address)
+                                        if current_data is None:
+                                            current_data = {"reward": 0, "height": 0}
+                                        else:
+                                            current_data = json.loads(current_data)
+                                        # 更新 reward 和 height
+                                        current_data["reward"] += reward
+                                        current_data["height"] = block.height
+                                        pipe.hset("address_incentive_puzzle_reward", address, json.dumps(current_data))
                                     await pipe.execute() # type: ignore
 
                         for aborted in block.aborted_transactions_ids:

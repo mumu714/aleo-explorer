@@ -19,6 +19,10 @@ class DatabaseAddress(DatabaseBase):
     async def get_puzzle_reward_all(self):
         data = await self.redis.hgetall("address_puzzle_reward")
         return len(data), data
+    
+    async def get_incentive_puzzle_reward_all(self):
+        data = await self.redis.hgetall("address_incentive_puzzle_reward")
+        return len(data), data
 
     async def get_recent_solutions_by_address(self, address: str) -> list[dict[str, Any]]:
         async with self.pool.connection() as conn:
