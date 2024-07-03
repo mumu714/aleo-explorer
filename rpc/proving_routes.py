@@ -67,6 +67,47 @@ async def validators_route(request: Request):
     }
     return JSONResponse(ctx)
 
+async def incentives_route(request: Request):
+    db: Database = request.app.state.db
+    try:
+        limit = request.query_params.get("limit")
+        offset = request.query_params.get("offset")
+        if limit is None:
+            limit = 50
+        else:
+            limit = int(limit)
+        if offset is None:
+            offset = 0
+        else:
+            offset = int(offset)
+    except:
+        raise HTTPException(status_code=400, detail="Invalid page")
+    address_count, leaderboard_data = await db.get_incentive_puzzle_reward_all()
+    if offset < 0 or offset > address_count:
+        raise HTTPException(status_code=400, detail="Invalid page")
+    all_data: list[dict[str, Any]] = []
+    total_reward = 0
+    for address, value in leaderboard_data.items():
+        value = json.loads(value)
+        total_reward += int(value["reward"])
+        all_data.append({
+            "address": address,
+            "reward": int(value["reward"]), 
+            "height": int(value["height"]),
+        })
+    leaderboard_data = sorted(all_data, key=lambda e: e['reward'], reverse=True)
+    if offset + limit > len(leaderboard_data):
+        data = leaderboard_data[offset:]
+    else:
+        data = leaderboard_data[offset:offset + limit]
+    ctx = {
+        "incentives": data,
+        "total_reward": total_reward,
+        "address_count": address_count,
+    }
+    return JSONResponse(ctx)
+
+
 async def credits_route(request: Request):
     db: Database = request.app.state.db
     try:
@@ -145,7 +186,7 @@ async def reward_route(request: Request):
             raise HTTPException(status_code=400, detail="Invalid page")
         for address, total_reward  in leaderboard_data.items():
             address_type = await get_address_type(db, address)
-            data.append({
+            all_data.append({
                 "address": address,
                 "address_type": address_type,
                 "reward": int(total_reward),
@@ -168,11 +209,11 @@ async def reward_route(request: Request):
                 "count": len(cur_solution),
                 "total_reward": int(total_rewards)
             })
-        leaderboard_data = sorted(all_data, key=lambda e: e['reward'], reverse=True)
-        if offset + limit > len(leaderboard_data):
-            data = leaderboard_data[offset:]
-        else:
-            data = leaderboard_data[offset:offset + limit]
+    leaderboard_data = sorted(all_data, key=lambda e: e['reward'], reverse=True)
+    if offset + limit > len(leaderboard_data):
+        data = leaderboard_data[offset:]
+    else:
+        data = leaderboard_data[offset:offset + limit]
 
     target_credit = 37_500_000_000_000
     ctx = {
@@ -231,10 +272,12 @@ async def power_route(request: Request):
         data = leaderboard_data[offset:offset + limit]
 
     target_credit = 37_500_000_000_000
+    network_speed = await db.get_network_speed(interval[type])
     ctx = {
         "leaderboard": data,
         "address_count": address_count,
         "target_credit": target_credit,
+        "network_speed": float(network_speed),
         "now": now,
     }
     return JSONResponse(ctx)
@@ -818,7 +861,7 @@ async def address_trending_route(request: Request):
     if len(solutions) > 0:
         cur_solution = [solution for solution in solutions if solution["timestamp"] >= trending_time]
         if type == "1d":
-            for _ in range(1, 30):
+            for _ in range(0, 30):
                 counts_data.append({
                     "timestamp": trending_time,
                     "count": len(cur_solution)
@@ -835,7 +878,7 @@ async def address_trending_route(request: Request):
                                 trending_time > solution["timestamp"] >= trending_time - 86400 * 1]
                 trending_time = trending_time - 86400 * 1
         elif type == "1h":
-            for _ in range(1, 24):
+            for _ in range(0, 24):
                 counts_data.append({
                     "timestamp": trending_time,
                     "count": len(cur_solution)

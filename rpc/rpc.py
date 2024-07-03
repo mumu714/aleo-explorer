@@ -113,6 +113,7 @@ routes = [
     Route("/submit_source", submit_source_route, methods=["POST"]),
     # Proving
     Route("/calc", calc_route),
+    Route("/incentives", incentives_route),
     Route("/validators", validators_route),
     Route("/estimate_fee", estimate_fee_route),
     Route("/validator_apr", validator_apr_route),
