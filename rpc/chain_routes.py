@@ -998,6 +998,33 @@ async def coinbase_route(request: Request):
     }
     return JSONResponse(ctx)
 
+async def proof_target_route(request: Request):
+    db: Database = request.app.state.db
+    type = request.path_params["type"]
+    interval = {
+        "15min": 900,
+        "1h": 3600,
+        "1d": 86400,
+        "7d": 86400 * 7,
+        "all": 0
+    }
+    if type not in interval.keys():
+        raise HTTPException(status_code=400, detail="Error trending type")
+    proof_targets = await db.get_interval_proof_target(interval[type])
+    if not proof_targets:
+        raise HTTPException(status_code=550, detail="No blocks found")
+    data: list[dict[str, Any]] = []
+    for proof_target in proof_targets:
+        data.append({
+            "height": proof_target["height"],
+            "proof_target": int(proof_target["proof_target"]),
+            "timestamp": proof_target["timestamp"],
+        })
+    ctx = {
+        "proof_targets": data,
+    }
+    return JSONResponse(ctx)
+
 
 async def unconfirmed_transactions_route(request: Request):
     db: Database = request.app.state.db

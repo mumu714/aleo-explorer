@@ -293,7 +293,7 @@ LIMIT 10
                             (address, now - interval)
                         )
                         partial_solutions = await cur.fetchall()
-                        if len(partial_solutions) < 10:
+                        if len(partial_solutions) < 0:
                             continue
                         heights = list(map(lambda x: x['height'], partial_solutions))
                         ref_heights = list(map(lambda x: x - 1, set(heights)))
@@ -310,6 +310,35 @@ LIMIT 10
                 except Exception as e:
                     await self.message_callback(ExplorerMessage(ExplorerMessage.Type.DatabaseError, e))
                     raise
+
+    async def get_address_interval_speed(self, address: str, interval: int) -> tuple[float, int]:
+        async with self.pool.connection() as conn:
+            async with conn.cursor() as cur:
+                now = int(time.time())
+                try:
+                    await cur.execute(
+                        "SELECT b.height FROM solution s "
+                        "JOIN puzzle_solution ps ON s.puzzle_solution_id = ps.id "
+                        "JOIN block b ON ps.block_id = b.id "
+                        "WHERE address = %s AND timestamp > %s",
+                        (address, now - interval)
+                    )
+                    partial_solutions = await cur.fetchall()
+                    heights = list(map(lambda x: x['height'], partial_solutions))
+                    ref_heights = list(map(lambda x: x - 1, set(heights)))
+                    await cur.execute(
+                        "SELECT height, proof_target FROM block WHERE height = ANY(%s::bigint[])", (ref_heights,)
+                    )
+                    ref_proof_targets = await cur.fetchall()
+                    ref_proof_target_dict = dict(map(lambda x: (x['height'], x['proof_target']), ref_proof_targets))
+                    total_solutions = 0
+                    for height in heights:
+                        total_solutions += ref_proof_target_dict[height - 1]
+                    return total_solutions / interval, interval
+                except Exception as e:
+                    await self.message_callback(ExplorerMessage(ExplorerMessage.Type.DatabaseError, e))
+                    raise
+        
 
     async def get_network_speed(self, interval: int) -> float:
         async with self.pool.connection() as conn:

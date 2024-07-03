@@ -103,6 +103,7 @@ routes = [
     Route("/blocks", blocks_route),
     Route("/hashrate", hashrate_route),
     Route("/coinbase", coinbase_route),
+    Route("/proof_target/{type}", proof_target_route),
     Route("/unconfirmed_transactions", unconfirmed_transactions_route),
     # Programs
     Route("/programs", programs_route),
