@@ -90,8 +90,10 @@ async def incentives_route(request: Request):
     for address, value in leaderboard_data.items():
         value = json.loads(value)
         total_reward += int(value["reward"])
+        speed, _ = await db.get_address_interval_speed(address, 86400)
         all_data.append({
             "address": address,
+            "speed": float(speed),
             "reward": int(value["reward"]), 
             "height": int(value["height"]),
         })

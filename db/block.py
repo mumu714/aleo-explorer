@@ -5,6 +5,7 @@ from collections import defaultdict
 import psycopg
 import psycopg.sql
 from psycopg.rows import DictRow
+import time
 
 from aleo_types import *
 from explorer.types import Message as ExplorerMessage
@@ -1200,6 +1201,28 @@ class DatabaseBlock(DatabaseBase):
                 except Exception as e:
                     await self.message_callback(ExplorerMessage(ExplorerMessage.Type.DatabaseError, e))
                     raise
+
+
+    async def get_interval_proof_target(self, interval: int) -> list[Any]:
+        async with self.pool.connection() as conn:
+            async with conn.cursor() as cur:
+                try:
+                    now = int(time.time())
+                    if interval == 0:
+                        await cur.execute(
+                            "SELECT height, timestamp, proof_target FROM block ORDER BY height "
+                        )
+                    else:
+                        await cur.execute(
+                            "SELECT height, timestamp, proof_target FROM block "
+                            "WHERE timestamp > %s ORDER BY height",(now - interval,)
+                        )
+                    result = await cur.fetchall()
+                    return result
+                except Exception as e:
+                    await self.message_callback(ExplorerMessage(ExplorerMessage.Type.DatabaseError, e))
+                    raise
+
 
     async def get_24H_puzzle_reward(self) -> int:
         puzzle_reward = await self.redis.get("24H_reward:puzzle")
