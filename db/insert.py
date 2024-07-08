@@ -19,9 +19,7 @@ from explorer.types import Message as ExplorerMessage
 from util.global_cache import global_mapping_cache
 from .base import DatabaseBase, profile
 from .util import DatabaseUtil
-from .mapping import DatabaseMapping
 from .address import DatabaseAddress
-from .block import DatabaseBlock
 
 
 class _SupplyTracker:
@@ -309,9 +307,16 @@ class DatabaseInsert(DatabaseBase):
             await cur.execute(
                 "SELECT id FROM transition WHERE transition_id = %s", (str(transition.id),)
             )
-            if await cur.fetchone() is not None:
+            res = await cur.fetchone()
+            if res is not None:
                 if not is_rejected or not should_exist:
-                    raise RuntimeError("transition already exists in database")
+                    await cur.execute(
+                        "DELETE FROM address_transition WHERE transition_id = %s", (res["id"],)
+                    )
+                    await cur.execute(
+                        "DELETE FROM transition WHERE transition_id = %s", (str(transition.id),)
+                    )
+                    # raise RuntimeError("transition already exists in database")
                 else:
                     return
             if fee_db_id:
@@ -1073,20 +1078,6 @@ class DatabaseInsert(DatabaseBase):
                 cast(u8, commission.literal.primitive),
             )
         return committee_members
-
-    @staticmethod
-    async def _get_delegated_mapping_unchecked(redis_conn: Redis[str]) -> dict[Address, u64]:
-        data = await redis_conn.hgetall("credits.aleo:delegated")
-        delegators: dict[Address, u64] = {}
-        for d in data.values():
-            d = json.loads(d)
-            key = cast(LiteralPlaintext, Plaintext.load(BytesIO(bytes.fromhex(d["key"]))))
-            value = cast(PlaintextValue, Value.load(BytesIO(bytes.fromhex(d["value"]))))
-            plaintext = cast(LiteralPlaintext, value.plaintext)
-            delegators[cast(Address, key.literal.primitive)] = cast(u64, plaintext.literal.primitive)
-        return delegators
-
-
 
     @staticmethod
     async def _get_delegated_mapping_unchecked(redis_conn: Redis[str]) -> dict[Address, u64]:
@@ -1921,7 +1912,7 @@ class DatabaseInsert(DatabaseBase):
                     await cur.execute("SELECT * FROM block WHERE timestamp > %s ORDER BY height DESC", (previous_timestamp,))
                     all_blocks = await cur.fetchall()
                     if len(all_blocks) > 0:
-                        for _ in range(1, 30):
+                        for _ in range(0, 30):
                             cur_blocks = [blocks for blocks in all_blocks if
                                             trending_time > blocks["timestamp"] >= trending_time - 86400 * 1]
                             trending_time = trending_time - 86400 * 1

@@ -15,11 +15,12 @@ from aleo_types import u32, Transition, ExecuteTransaction, PrivateTransitionInp
     FeeTransaction, RejectedDeploy, RejectedExecution, Identifier, Entry, FutureTransitionOutput, Future, \
     PlaintextArgument, FutureArgument, StructPlaintext, Finalize, \
     PlaintextFinalizeType, StructPlaintextType, UpdateKeyValue, Value, Plaintext, RemoveKeyValue, FinalizeOperation, \
-    cached_get_mapping_id, cached_get_key_id, FeeComponent, Fee
+    cached_get_mapping_id, cached_get_key_id, FeeComponent, Fee, Option
 from db import Database
 from util.global_cache import get_program
+from util.typing_exc import Unreachable
 from .classes import UIAddress
-from .utils import function_signature, out_of_sync_check, function_definition
+from .utils import function_signature, get_future_argument, out_of_sync_check, function_definition
 from .format import *
 
 try:
@@ -98,13 +99,18 @@ async def block_route(request: Request):
             tx = ct.transaction
             if not isinstance(tx, ExecuteTransaction):
                 raise HTTPException(status_code=550, detail="Invalid transaction type")
+            fee = cast(Option[Fee], tx.fee).value
+            if fee is not None:
+                base_fee, priority_fee = fee.amount
+            else:
+                base_fee, priority_fee = 0, 0
             root_transition = tx.execution.transitions[-1]
             t = {
                 "tx_id": str(tx.id),
                 "index": ct.index,
                 "type": "Execute",
                 "state": "Accepted",
-                "transitions_count": len(tx.execution.transitions) + bool(tx.fee.value is not None),
+                "transitions_count": len(tx.execution.transitions) + bool(fee is not None),
                 "base_fee": base_fee - burnt_fee,
                 "priority_fee": priority_fee,
                 "burnt_fee": burnt_fee,
@@ -115,6 +121,7 @@ async def block_route(request: Request):
             tx = ct.transaction
             if not isinstance(tx, FeeTransaction):
                 raise HTTPException(status_code=550, detail="Invalid transaction type")
+            base_fee, priority_fee = cast(Fee, tx.fee).amount
             rejected = ct.rejected
             if not isinstance(rejected, RejectedExecution):
                 raise HTTPException(status_code=550, detail="Invalid rejected transaction type")
@@ -257,6 +264,8 @@ async def transaction_route(request: Request):
         transaction_type = "Deploy"
         if is_confirmed:
             transaction_state = "Accepted"
+            if confirmed_transaction is None:
+                raise Unreachable
             index = confirmed_transaction.index
         else:
             transaction_state = "Unconfirmed"
@@ -267,6 +276,8 @@ async def transaction_route(request: Request):
         transaction_type = "Execute"
         if is_confirmed:
             transaction_state = "Accepted"
+            if confirmed_transaction is None:
+                raise Unreachable
             index = confirmed_transaction.index
         else:
             transaction_state = "Unconfirmed"
@@ -295,6 +306,8 @@ async def transaction_route(request: Request):
     else:
         # storage_cost, namespace_cost, finalize_costs, priority_fee, burnt = await confirmed_transaction.get_fee_breakdown(db)
         block = await db.get_block_from_transaction_id(tx_id)
+        if block is None:
+            raise HTTPException(status_code=550, detail="Database inconsistent")
         block_confirm_time = await db.get_block_confirm_time(block.height)
 
     fee = transaction.fee
@@ -305,7 +318,7 @@ async def transaction_route(request: Request):
     else:
         storage_cost, priority_fee = 0, 0
     namespace_cost = 0
-    finalize_costs = []
+    finalize_costs: list[int] = []
     burnt = 0
 
     ctx: dict[str, Any] = {
@@ -323,18 +336,21 @@ async def transaction_route(request: Request):
         "finalize_costs": finalize_costs,
         "priority_fee": priority_fee,
         "burnt_fee": burnt,
+        "first_seen": first_seen,
+        "original_txid": original_txid,
+        "program_info": program_info,
         "reject_reason": await db.get_transaction_reject_reason(tx_id) if transaction_state == "Rejected" else None,
     }
 
     if isinstance(transaction, DeployTransaction):
         deployment = transaction.deployment
         program = deployment.program
-        fee_transition = transaction.fee.transition
+        fee_transition = cast(Fee, transaction.fee).transition
         ctx.update({
             "edition": int(deployment.edition),
             "program_id": str(program.id),
             "transitions": [{
-                "transition_id": str(transaction.fee.transition.id),
+                "transition_id": str(fee_transition.id),
                 "action": f"{fee_transition.program_id}/{fee_transition.function_name}",
             }],
         })
@@ -360,8 +376,8 @@ async def transaction_route(request: Request):
                     "amount": amount
                 }
                 ctx.update({"transaction_type": "transfer"})
-        if transaction.fee.value is not None:
-            fee = transaction.fee.value
+        fee = cast(Option[Fee], transaction.fee).value
+        if fee is not None:
             transition = fee.transition
             fee_transition = {
                 "transition_id": str(transition.id),
@@ -376,12 +392,13 @@ async def transaction_route(request: Request):
             "transitions": transitions,
             "fee_transition": fee_transition,
         })
-    elif isinstance(transaction, FeeTransaction):
-        global_state_root = transaction.fee.global_state_root
-        proof = transaction.fee.proof.value
+    elif isinstance(transaction, FeeTransaction): # type: ignore[reportUnnecessaryIsInstance] # future proof
+        fee = cast(Fee, transaction.fee)
+        global_state_root = fee.global_state_root
+        proof = fee.proof.value
         transitions = []
         rejected_transitions: DictList = []
-        transition = transaction.fee.transition
+        transition = fee.transition
         transitions.append({
             "transition_id": str(transition.id),
             "action":f"{transition.program_id}/{transition.function_name}",
@@ -411,6 +428,8 @@ async def transaction_route(request: Request):
 
     mapping_operations: Optional[list[dict[str, Any]]] = None
     if confirmed_transaction is not None:
+        if block is None:
+            raise Unreachable
         limited_tracking = {
             cached_get_mapping_id("credits.aleo", "committee"): ("credits.aleo", "committee"),
             cached_get_mapping_id("credits.aleo", "bonded"): ("credits.aleo", "bonded"),
@@ -571,8 +590,9 @@ async def transition_route(request: Request):
                 if not isinstance(tx, DeployTransaction):
                     raise HTTPException(status_code=550, detail="Database inconsistent")
                 state = "Accepted"
-                if str(tx.fee.transition.id) == ts_id:
-                    transition = tx.fee.transition
+                fee = cast(Fee, tx.fee)
+                if str(fee.transition.id) == ts_id:
+                    transition = fee.transition
                     transaction_id = tx.id
                     break
             case AcceptedExecute():
@@ -585,8 +605,9 @@ async def transition_route(request: Request):
                         transition = ts
                         transaction_id = tx.id
                         break
-                if transaction_id is None and tx.fee.value is not None:
-                    ts = tx.fee.value.transition
+                fee = cast(Option[Fee], tx.fee).value
+                if transaction_id is None and fee is not None:
+                    ts = fee.transition
                     if str(ts.id) == ts_id:
                         transition = ts
                         transaction_id = tx.id
@@ -595,8 +616,9 @@ async def transition_route(request: Request):
                 tx = ct.transaction
                 if not isinstance(tx, FeeTransaction):
                     raise HTTPException(status_code=550, detail="Database inconsistent")
-                if str(tx.fee.transition.id) == ts_id:
-                    transition = tx.fee.transition
+                fee = cast(Fee, tx.fee)
+                if str(fee.transition.id) == ts_id:
+                    transition = fee.transition
                     transaction_id = tx.id
                     state = "Accepted"
                 else:
@@ -694,14 +716,7 @@ async def transition_route(request: Request):
                     self_future = future
                 arguments:list[Any]= []
                 for arg in future.arguments:
-                    if isinstance(arg, FutureArgument):
-                        arguments.append({
-                            "program_id": str(arg.future.program_id),
-                            "function_name": str(arg.future.function_name),
-                            "arguments": [str(i.plaintext) for i in arg.future.arguments]
-                        })
-                    else:
-                        arguments.append(str(arg.plaintext))
+                    arguments.append(get_future_argument(arg))
                 future = {
                     "program_id": str(future.program_id),
                     "function_name": str(future.function_name),
@@ -722,6 +737,8 @@ async def transition_route(request: Request):
                 struct_type = ""
                 if isinstance(argument.plaintext, StructPlaintext):
                     program = await get_program(db, str(transition.program_id))
+                    if program is None:
+                        raise HTTPException(status_code=550, detail="Program not found")
                     finalize = cast(Finalize, program.functions[transition.function_name].finalize.value)
                     finalize_type = cast(PlaintextFinalizeType, finalize.inputs[i].finalize_type)
                     struct_type = str(cast(StructPlaintextType, finalize_type.plaintext_type).struct)
@@ -991,7 +1008,7 @@ async def coinbase_route(request: Request):
         data.append({
             "height": coinbase["height"],
             "timestamp": coinbase["timestamp"],
-            "reward": float(coinbase["reward"] // 2)
+            "reward": float(coinbase["reward"])
         })
     ctx = {
         "coinbase": data,

@@ -40,7 +40,7 @@ async def finalize_deploy(db: Database, cur: psycopg.AsyncCursor[dict[str, Any]]
                           ) -> tuple[list[FinalizeOperation], list[dict[str, Any]], Optional[str]]:
     transaction = confirmed_transaction.transaction
     if isinstance(transaction, (DeployTransaction, FeeTransaction)):
-        transition = transaction.fee.transition
+        transition = cast(Fee, transaction.fee).transition
     else:
         raise NotImplementedError
     if transition.function_name == "fee_public":
@@ -253,7 +253,7 @@ async def get_mapping_value(db: Database, program_id: str, mapping_name: str, ke
     key_plaintext = LiteralPlaintext(literal=Literal.loads(Literal.Type(mapping_key_type.literal_type.value), key))
     key_id = Field.loads(cached_get_key_id(program_id, mapping_name, key_plaintext.dump()))
     if key_id not in global_mapping_cache[mapping_id]:
-        raise ExecuteError(f"key {key} not found in mapping {mapping_id}", None, "", )
+        raise ExecuteError(f"key {key} not found in mapping {mapping_id}", None, "", TransitionID.load(BytesIO(b"\x00" * 32)))
     else:
         value = global_mapping_cache[mapping_id][key_id]["value"]
         if not isinstance(value, PlaintextValue):
@@ -274,5 +274,4 @@ async def preview_finalize_execution(db: Database, program: Program, function_na
         mapping_cache={},
         local_mapping_cache={},
         allow_state_change=False,
-        execute_await=True,
     )
