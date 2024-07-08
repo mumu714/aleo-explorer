@@ -326,7 +326,7 @@ class DatabaseProgram(DatabaseBase):
                     calls_list: list[dict[str, Any]] = []
                     if len(trend_record) > 0:
                         calls = [call for call in trend_record if call["timestamp"] >= trending_time]
-                        for _ in range(1, 30):
+                        for _ in range(0, 30):
                             calls_list.append({
                                 "timestamp": trending_time,
                                 "value": len(calls)

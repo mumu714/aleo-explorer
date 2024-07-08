@@ -1,5 +1,5 @@
 from io import BytesIO
-from typing import cast, Any
+from typing import Tuple, cast, Any
 
 from starlette.requests import Request
 from starlette.responses import JSONResponse
@@ -7,7 +7,7 @@ from starlette.responses import JSONResponse
 from aleo_types import Program, Identifier, Finalize, LiteralPlaintextType, \
     LiteralPlaintext, Literal, StructPlaintextType, StructPlaintext, FinalizeOperation, Value, \
     PlaintextFinalizeType, FutureFinalizeType, PlaintextValue, Future, FinalizeInput, Argument, PlaintextArgument, \
-    FutureValue, FutureArgument, u8, Vec
+    FutureValue, FutureArgument, u8, Vec, FinalizeType
 from api.utils import use_program_cache
 from db import Database
 from interpreter.finalizer import ExecuteError
@@ -19,7 +19,7 @@ class LoadError(Exception):
         self.error = error
         self.status_code = status_code
 
-async def _load_program_finalize_inputs(db, program_id, program_cache, function_name) -> (Program, list[FinalizeInput]):
+async def _load_program_finalize_inputs(db: Database, program_id: str, program_cache: dict[str, Program], function_name: Identifier) -> Tuple[Program, list[FinalizeInput]]:
     try:
         try:
             program = program_cache[program_id]
@@ -39,7 +39,7 @@ async def _load_program_finalize_inputs(db, program_id, program_cache, function_
     finalize: Finalize = function.finalize.value
     return program, finalize.inputs
 
-async def _load_args(db, program, program_cache, input_, finalize_type, index) -> Value:
+async def _load_args(db: Database, program: Program, program_cache: dict[str, Program], input_: Any, finalize_type: FinalizeType, index: int) -> Value:
     if isinstance(finalize_type, PlaintextFinalizeType):
         plaintext_type = finalize_type.plaintext_type
         if isinstance(plaintext_type, LiteralPlaintextType):

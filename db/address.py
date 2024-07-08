@@ -516,7 +516,10 @@ LIMIT 10
         async with self.pool.connection() as conn:
             async with conn.cursor() as cur:
                 try:
-                    await cur.execute("SELECT * FROM coinbase ORDER BY height")
+                    await cur.execute(
+                        "SELECT * FROM (SELECT *, ROW_NUMBER() OVER (PARTITION BY timestamp ORDER BY height DESC) AS rn "
+                        "FROM coinbase) t WHERE t.rn = 1 ORDER BY height"
+                    )
                     coinbase = await cur.fetchall()
                     return coinbase
                 except Exception as e:

@@ -125,3 +125,17 @@ async def get_address_type(db: Database, address: str):
     elif program_count > 0:
         address_type = "Developer"
     return address_type
+
+def get_future_argument(argument: Argument) -> dict[str, Any]|str:
+    if isinstance(argument, FutureArgument):
+        result = {
+            "program_id": str(argument.future.program_id),
+            "function_name": str(argument.future.function_name),
+            "arguments": [get_future_argument(i) for i in argument.future.arguments]
+        }
+        return result
+    elif isinstance(argument, PlaintextArgument):
+        return str(argument.plaintext)
+    else:
+        raise ValueError("unknown argument type")
+

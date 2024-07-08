@@ -19,8 +19,12 @@ from aleo_types import *
 async def calc_route(request: Request):
     db: Database = request.app.state.db
     proof_target = (await db.get_latest_block()).header.metadata.proof_target
+    total_solutions = await db.get_total_solution_count()
+    avg_reward = await db.get_average_solution_reward()
     ctx = {
         "proof_target": proof_target,
+        "total_solutions": total_solutions,
+        "avg_reward": avg_reward,
     }
     return JSONResponse(ctx)
 
@@ -307,10 +311,13 @@ async def address_route(request: Request):
     bonded_key_id = cached_get_key_id("credits.aleo", "bonded", address_key_bytes)
     unbonding_key_id = cached_get_key_id("credits.aleo", "unbonding", address_key_bytes)
     committee_key_id = cached_get_key_id("credits.aleo", "committee", address_key_bytes)
+    delegated_key_id = cached_get_key_id("credits.aleo", "delegated", address_key_bytes)
+    withdraw_key_id = cached_get_key_id("credits.aleo", "withdraw", address_key_bytes)
     public_balance_bytes = await db.get_mapping_value("credits.aleo", "account", account_key_id)
     bond_state_bytes = await db.get_mapping_value("credits.aleo", "bonded", bonded_key_id)
     unbond_state_bytes = await db.get_mapping_value("credits.aleo", "unbonding", unbonding_key_id)
     committee_state_bytes = await db.get_mapping_value("credits.aleo", "committee", committee_key_id)
+    delegated_bytes = await db.get_mapping_value("credits.aleo", "delegated", delegated_key_id)
     stake_reward = await db.get_address_stake_reward(address)
     delegate_reward = await db.get_address_delegate_reward(address)
     transfer_in = await db.get_address_transfer_in(address)
@@ -421,6 +428,7 @@ async def address_route(request: Request):
         public_balance = int(cast(Int, plaintext.literal.primitive))
     if bond_state_bytes is None:
         bond_state = None
+        withdrawal_address = None
     else:
         value = cast(PlaintextValue, Value.load(BytesIO(bond_state_bytes)))
         plaintext = cast(StructPlaintext, value.plaintext)
@@ -430,6 +438,13 @@ async def address_route(request: Request):
             "validator": str(validator.literal.primitive),
             "amount": int(cast(Int, amount.literal.primitive)),
         }
+        withdraw_bytes = await db.get_mapping_value("credits.aleo", "withdraw", withdraw_key_id)
+        if withdraw_bytes is None:
+            withdrawal_address = None
+        else:
+            value = cast(PlaintextValue, Value.load(BytesIO(withdraw_bytes)))
+            plaintext = cast(LiteralPlaintext, value.plaintext)
+            withdrawal_address = str(plaintext.literal.primitive)
     if unbond_state_bytes is None:
         unbond_state = None
     else:
@@ -443,6 +458,8 @@ async def address_route(request: Request):
         }
     if committee_state_bytes is None:
         committee_state = None
+        address_stakes: Optional[dict[str, int]] = None
+        uptime = None
     else:
         value = cast(PlaintextValue, Value.load(BytesIO(committee_state_bytes)))
         plaintext = cast(StructPlaintext, value.plaintext)
@@ -452,6 +469,21 @@ async def address_route(request: Request):
             "amount": int(cast(Int, amount.literal.primitive)),
             "is_open": bool(is_open.literal.primitive),
         }
+        bonded_mapping = await db.get_bonded_mapping_unchecked()
+        bonded_mapping = sorted(bonded_mapping.items(), key=lambda x: x[1][1], reverse=True)
+        address_stakes = {}
+        for staker_addr, (validator_addr, stake_amount) in bonded_mapping:
+            if str(validator_addr) == address:
+                address_stakes[str(staker_addr)] = int(stake_amount)
+                if len(address_stakes) >= 50:
+                    break
+        uptime = await db.get_validator_uptime(address)
+    if delegated_bytes is None:
+        delegated = None
+    else:
+        value = cast(PlaintextValue, Value.load(BytesIO(delegated_bytes)))
+        plaintext = cast(LiteralPlaintext, value.plaintext)
+        delegated = int(cast(Int, plaintext.literal.primitive))
     if stake_reward is None:
         stake_reward = 0
     if delegate_reward is None:
@@ -506,6 +538,10 @@ async def address_route(request: Request):
         "bond_state": bond_state,
         "unbond_state": unbond_state,
         "committee_state": committee_state,
+        "address_stakes": address_stakes,
+        "delegated": delegated,
+        "withdrawal_address": withdrawal_address,
+        "uptime": uptime,
         "stake_reward": stake_reward,
         "delegate_reward": delegate_reward,
         "total_stake": total_stake,
@@ -929,7 +965,7 @@ async def baseline_trending_route(request: Request):
     if len(solutions) > 0:
         cur_solution = [solution for solution in solutions if solution["timestamp"] >= trending_time]
         if type == "1d":
-            for _ in range(1, 30):
+            for _ in range(0, 30):
                 counts_data.append({
                     "timestamp": trending_time,
                     "count": len(cur_solution)
@@ -946,7 +982,7 @@ async def baseline_trending_route(request: Request):
                                 trending_time > solution["timestamp"] >= trending_time - 86400 * 1]
                 trending_time = trending_time - 86400 * 1
         elif type == "1h":
-            for _ in range(1, 24):
+            for _ in range(0, 24):
                 counts_data.append({
                     "timestamp": trending_time,
                     "count": len(cur_solution)
@@ -985,7 +1021,7 @@ async def validator_trending_route(request: Request):
     profit_data: list[dict[str, Any]] = []
     if len(validator_trend) > 0:
         cur_trend = [trend for trend in validator_trend if trend["timestamp"] >= trending_time]
-        for _ in range(1, 15):
+        for _ in range(0, 15):
             stake_data.append({
                 "timestamp": trending_time,
                 "value": int(cur_trend[0]["committee_stake"]) if cur_trend else 0
@@ -1077,7 +1113,7 @@ async def estimate_fee_route(request: Request):
         else:
             storage_cost, priority_fee = 0, 0
         namespace_cost = 0
-        finalize_costs = []
+        finalize_costs: list[int] = []
         burnt = 0
 
         # confirmed_transaction = await db.get_confirmed_transaction(transaction_id)

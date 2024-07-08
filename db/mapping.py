@@ -257,7 +257,7 @@ class DatabaseMapping(DatabaseBase):
                     address = str(Plaintext.load(BytesIO(key)))
                     plaintextvalue = cast(PlaintextValue, Value.load(BytesIO(value)))
                     plaintext = cast(LiteralPlaintext, plaintextvalue.plaintext)
-                    public_balance = int(plaintext.literal.primitive)
+                    public_balance = cast(int, plaintext.literal.primitive)
                     await cur.execute(
                         "INSERT INTO address (address, public_credits) VALUES (%s, %s) "
                         "ON CONFLICT (address) DO UPDATE SET public_credits = %s",

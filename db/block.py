@@ -407,6 +407,8 @@ class DatabaseBlock(DatabaseBase):
                         if fee is not None:
                             await cur.execute("SELECT * FROM transition WHERE fee_id = %s", (fee["id"],))
                             fee_transition = await cur.fetchone()
+                            if fee_transition is None:
+                                raise RuntimeError("database inconsistent")
                             fee = Fee(
                                 transition=await self._get_transition_from_dict(fee_transition, conn),
                                 global_state_root=StateRoot.loads(fee["global_state_root"]),
