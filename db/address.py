@@ -293,7 +293,7 @@ LIMIT 10
                             (address, now - interval)
                         )
                         partial_solutions = await cur.fetchall()
-                        if len(partial_solutions) < 0:
+                        if len(partial_solutions) < 10 and interval != 86400:
                             continue
                         heights = list(map(lambda x: x['height'], partial_solutions))
                         ref_heights = list(map(lambda x: x - 1, set(heights)))
@@ -311,7 +311,7 @@ LIMIT 10
                     await self.message_callback(ExplorerMessage(ExplorerMessage.Type.DatabaseError, e))
                     raise
 
-    async def get_address_interval_speed(self, address: str, interval: int) -> tuple[float, int]:
+    async def get_address_interval_speed(self, address: str, interval: int) -> float:
         async with self.pool.connection() as conn:
             async with conn.cursor() as cur:
                 now = int(time.time())
@@ -334,7 +334,7 @@ LIMIT 10
                     total_solutions = 0
                     for height in heights:
                         total_solutions += ref_proof_target_dict[height - 1]
-                    return total_solutions / interval, interval
+                    return total_solutions / interval
                 except Exception as e:
                     await self.message_callback(ExplorerMessage(ExplorerMessage.Type.DatabaseError, e))
                     raise
