@@ -117,7 +117,7 @@ async def incentives_route(request: Request):
     for address, value in leaderboard_data.items():
         value = json.loads(value)
         total_reward += int(value["reward"])
-        speed, _ = await db.get_address_interval_speed(address, 86400)
+        speed = await db.get_address_interval_speed(address, 86400)
         all_data.append({
             "address": address,
             "speed": float(speed),
@@ -359,7 +359,7 @@ async def address_route(request: Request):
         and stake_reward is None
         and transfer_in is None
         and transfer_out is None
-        and fee is None
+        and total_fee is None
         and address_info is None
         and program_name is None
     ):
@@ -388,7 +388,7 @@ async def address_route(request: Request):
         interval = 0
     program_count = await db.get_program_count_by_address(address)
     interval_text = {
-        0: "never",
+        0: "1d",
         900: "15 minutes",
         1800: "30 minutes",
         3600: "1 hour",
@@ -545,6 +545,7 @@ async def address_route(request: Request):
     network_1hour_speed = await db.get_network_speed(3600)
     network_1hour_reward = await db.get_network_reward(3600)
     address_1hour_reward = await db.get_address_reward(address, 3600)
+    address_1hour_speed = await db.get_address_interval_speed(address, 3600)
     uiaddress = await UIAddress(address).resolve(db)
     ctx = {
         "address": uiaddress.__dict__,
@@ -578,6 +579,7 @@ async def address_route(request: Request):
         "transfer_out": transfer_out,
         "fee": total_fee,
         "address_1hour_reward": int(address_1hour_reward),
+        "address_1hour_speed": float(address_1hour_speed),
         "network": {
             "network_1hour_speed": float(network_1hour_speed),
             "network_1hour_reward": int(network_1hour_reward)
