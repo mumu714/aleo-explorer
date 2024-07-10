@@ -11,7 +11,7 @@ from aleo_types import PlaintextValue, LiteralPlaintext, Literal, \
     Address, Value, StructPlaintext, FutureTransitionOutput, PlaintextArgument
 from db import Database
 from .classes import UIAddress
-from .utils import out_of_sync_check, get_address_type
+from .utils import get_address_type
 from .format import *
 from aleo_types import *
 
@@ -43,29 +43,52 @@ async def validators_route(request: Request):
             offset = int(offset)
     except:
         raise HTTPException(status_code=400, detail="Invalid page")
-    address_count = await db.get_validators_size()
-    if offset < 0 or offset > address_count:
+    latest_height = await db.get_latest_height()
+    if latest_height is None:
+        raise HTTPException(status_code=550, detail="No blocks found")
+    total_validators = await db.get_validator_count_at_height(latest_height)
+    if offset < 0 or offset > total_validators:
         raise HTTPException(status_code=400, detail="Invalid page")
-    committee, validators = await db.get_validators(offset, offset + limit)
+    committee = await db.get_committee_at_height(latest_height)
+    validators_data = await db.get_validators_range_at_height(latest_height, offset, offset + limit)
     data: list[dict[str, Any]] = []
-    for validator in validators:
-        address_type = await get_address_type(db, validator["address"])
+    for validator in validators_data:
         stake_reward = await db.get_address_stake_reward(validator["address"])
         delegate_reward = await db.get_address_delegate_reward(validator["address"])
         if stake_reward is None:
             stake_reward = 0
         if delegate_reward is None:
             delegate_reward = 0
+        address_key = LiteralPlaintext(
+            literal=Literal(
+                type_=Literal.Type.Address,
+                primitive=Address.loads(validator["address"]),
+            )
+        )
+        address_key_bytes = address_key.dump()
+        committee_key_id = cached_get_key_id("credits.aleo", "committee", address_key_bytes)
+        committee_state_bytes = await db.get_mapping_value("credits.aleo", "committee", committee_key_id)
+        if committee_state_bytes is None:
+            commission_value = 0 
+        else:
+            value = cast(PlaintextValue, Value.load(BytesIO(committee_state_bytes)))
+            plaintext = cast(StructPlaintext, value.plaintext)
+            commission = cast(LiteralPlaintext, plaintext["commission"])
+            commission_value = int(cast(Int, commission.literal.primitive))
         data.append({
             "address": validator["address"],
-            "address_type": address_type,
+            "address_type": "Validator",
             "staking_reward": stake_reward + delegate_reward,
             "stake": int(validator["stake"]),
-            "is_open": validator["is_open"]
+            "commission": commission_value,
+            "last_epoch_apr": await db.get_validatory_last_epoch_apr(validator["address"]),
+            "is_open": validator["is_open"],
+            "uptime": validator["uptime"] * 100,
+            "vote_power": int(validator["stake"]) / int(committee["total_stake"]) * 100
         })
     ctx = {
         "validators": data,
-        "address_count": address_count,
+        "address_count": total_validators,
         "total_stake": int(committee["total_stake"]),
         "starting_round": int(committee["starting_round"]),
     }
@@ -322,7 +345,7 @@ async def address_route(request: Request):
     delegate_reward = await db.get_address_delegate_reward(address)
     transfer_in = await db.get_address_transfer_in(address)
     transfer_out = await db.get_address_transfer_out(address)
-    fee = await db.get_address_total_fee(address)
+    total_fee = await db.get_address_total_fee(address)
     address_info = await db.get_address_info(address)
     program_name = await db.get_program_name_from_address(address)
 
@@ -465,7 +488,9 @@ async def address_route(request: Request):
         plaintext = cast(StructPlaintext, value.plaintext)
         amount = cast(LiteralPlaintext, plaintext["microcredits"])
         is_open = cast(LiteralPlaintext, plaintext["is_open"])
+        commission = cast(LiteralPlaintext, plaintext["commission"])
         committee_state = {
+            "commission": int(cast(Int, commission.literal.primitive)),
             "amount": int(cast(Int, amount.literal.primitive)),
             "is_open": bool(is_open.literal.primitive),
         }
@@ -492,13 +517,17 @@ async def address_route(request: Request):
         transfer_in = 0
     if transfer_out is None:
         transfer_out = 0
-    if fee is None:
-        fee = 0
+    if total_fee is None:
+        total_fee = 0
     address_type = ""
     total_stake = 0
     if committee_state:
         address_type = "Validator"
-        total_stake = await db.get_total_stake()
+        latest_height = await db.get_latest_height()
+        if latest_height is None:
+            raise HTTPException(status_code=550, detail="No blocks found")
+        committee = await db.get_committee_at_height(latest_height)
+        total_stake = int(committee["total_stake"])
     elif solution_count > 0:
         address_type = "Prover"
     elif program_count > 0:
@@ -547,7 +576,7 @@ async def address_route(request: Request):
         "total_stake": total_stake,
         "transfer_in": transfer_in,
         "transfer_out": transfer_out,
-        "fee": fee,
+        "fee": total_fee,
         "address_1hour_reward": int(address_1hour_reward),
         "network": {
             "network_1hour_speed": float(network_1hour_speed),

@@ -8,7 +8,7 @@ from .address import DatabaseAddress
 
 class DatabaseValidator(DatabaseBase):
 
-    async def get_validator_count_at_height(self, height: int) -> Optional[int]:
+    async def get_validator_count_at_height(self, height: int) -> int:
         async with self.pool.connection() as conn:
             async with conn.cursor() as cur:
                 try:
@@ -22,7 +22,7 @@ class DatabaseValidator(DatabaseBase):
                     if res:
                         return res["count"]
                     else:
-                        return None
+                        return 0
                 except Exception as e:
                     await self.message_callback(ExplorerMessage(ExplorerMessage.Type.DatabaseError, e))
                     raise
@@ -32,7 +32,7 @@ class DatabaseValidator(DatabaseBase):
             async with conn.cursor() as cur:
                 try:
                     await cur.execute(
-                        "SELECT chm.address, chm.stake FROM committee_history_member chm "
+                        "SELECT chm.address, chm.stake, chm.is_open FROM committee_history_member chm "
                         "JOIN committee_history ch ON chm.committee_id = ch.id "
                         "WHERE ch.height = %s "
                         "ORDER BY chm.stake DESC "
@@ -40,7 +40,6 @@ class DatabaseValidator(DatabaseBase):
                         (height, end - start, start)
                     )
                     validators = await cur.fetchall()
-                    print(start, end)
                     await cur.execute("SELECT timestamp FROM block WHERE height = %s", (height,))
                     res = await cur.fetchone()
                     if res:
@@ -290,15 +289,21 @@ class DatabaseValidator(DatabaseBase):
                     await self.message_callback(ExplorerMessage(ExplorerMessage.Type.DatabaseError, e))
                     raise
 
-    async def get_total_stake(self) -> int:
+    async def get_committee_at_height(self, height: int) -> dict[str, Any]:
         async with self.pool.connection() as conn:
             async with conn.cursor() as cur:
                 try:
-                    await cur.execute("SELECT total_stake FROM committee_history ORDER BY height DESC LIMIT 1")
+                    await cur.execute("SELECT * FROM committee_history WHERE height = %s",(height,))
                     committee = await cur.fetchone()
                     if committee is None:
                         raise RuntimeError("no committee in database")
-                    return int(committee["total_stake"])
+                    return committee
                 except Exception as e:
                     await self.message_callback(ExplorerMessage(ExplorerMessage.Type.DatabaseError, e))
                     raise
+
+    async def get_validatory_last_epoch_apr(self, address: str) -> float:
+        data = await self.redis.hget("validator_last_epoch_apr", address)
+        if data is None:
+            return 0.0
+        return float(data)

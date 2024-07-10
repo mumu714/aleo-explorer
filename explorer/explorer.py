@@ -2,6 +2,9 @@ import asyncio
 import os
 import traceback
 from sys import stdout
+import time
+import json
+import requests
 
 import rpc
 from aleo_types import Block, BlockHash
@@ -14,8 +17,9 @@ from node import Node
 # from webapi import webapi
 # from webui import webui
 from .types import Request, Message, ExplorerRequest
-from apscheduler.schedulers.tornado import TornadoScheduler
-
+from apscheduler.schedulers.tornado import TornadoScheduler # type: ignore
+from aliyunsdkcore.client import AcsClient # type: ignore
+from aliyunsdkcore.request import CommonRequest # type: ignore
 
 class Explorer:
 
@@ -100,6 +104,7 @@ class Explorer:
             self.scheduler.add_job(self.update_address_hashrate, 'cron', minute="*/15", id='job2')  # type: ignore
             self.scheduler.add_job(self.add_coinbase, 'cron', hour="*/12", id='job3')  # type: ignore
             self.scheduler.add_job(self.update_24H_reward_data, 'cron', hour="*/1", id='job4')  # type: ignore
+            self.scheduler.add_job(self.check_data_sync, 'cron', minute="*/10", id='job5')  # type: ignore
             while True:
                 msg = await self.message_queue.get()
                 match msg.type:
@@ -170,6 +175,21 @@ class Explorer:
     async def update_24H_reward_data(self):
         await self.db.save_24H_reward_data()
 
+    async def check_data_sync(self):
+        last_timestamp, last_height = await asyncio.gather(
+            self.db.get_latest_block_timestamp(),
+            self.db.get_latest_height()
+        )
+        now = int(time.time())
+        out_of_sync = now - last_timestamp > 300
+        if out_of_sync:
+            rpc_root = os.environ.get("RPC_URL_ROOT", "127.0.0.1:3003")
+            node_height = requests.get(f"{rpc_root}/testnet/latest/height")
+            print(f"Curret Aleo.Info block height at {last_height}, Node height at {node_height.text}")
+            message = f"Aleo.Info 后端报错信息: 当前浏览器区块落后超过5分钟,请检查. Current Aleo.Info block height at {last_height}, Node height at {node_height.text}"
+            self.send_lark_message(message)
+            self.single_call()
+
     async def clear_database(self):
         print("The current database has a different genesis block!\nPress Ctrl+C to abort, or wait 10 seconds to clear the database.")
         i = 10
@@ -197,3 +217,54 @@ class Explorer:
             except OSError as e:
                 print("Cannot remove clear_flag:", e)
             await self.db.clear_database()
+
+    def send_lark_message(self, messgae: str):
+        webhook_url = os.environ.get("LARK_URL")
+        if webhook_url is None:
+            raise ValueError("invalid lark webhook_url")
+        data = {
+            "msg_type": "text",
+            "content": {
+                "text": messgae
+            }
+        }
+        response = requests.post(
+            url=webhook_url,
+            headers={"Content-Type": "application/json"},
+            data=json.dumps(data)
+        )
+        if response.status_code == 200:
+            print("[Aleo.Info Check Sync] Message sent successfully!")
+        else:
+            print(f"[Aleo.Info Check Sync] Failed to send message: {response.text}")
+        
+    def single_call(self):
+        access_key_id = os.environ.get("ACCESSID")
+        access_key_secret = os.environ.get("ACCESSSECRET")
+        region_id = os.environ.get("REGION_ID")
+        called_number = os.environ.get("CALLED_NUMBER")
+        TtsCode = os.environ.get("TTSTemplate")
+        if (access_key_id is None 
+            or access_key_secret is None 
+            or region_id is None 
+            or called_number is None 
+            or TtsCode is None
+        ):
+            raise ValueError("invalid value")
+        client = AcsClient(access_key_id, access_key_secret, region_id)
+        request = CommonRequest(domain='dyvmsapi.aliyuncs.com', version='2017-05-25',action_name='SingleCallByTts')
+        request.set_accept_format('json') # type: ignore
+        request.set_method('POST') # type: ignore
+        request.add_query_param('RegionId', region_id) # type: ignore
+        request.add_query_param('CalledShowNumber', '')   # type: ignore
+        request.add_query_param('CalledNumber', called_number)   # type: ignore
+        request.add_query_param('TtsCode', TtsCode)   # type: ignore
+        data = {
+            "minerId": 'Aleo.Info',
+            "errorDescribe": 'Explorer Error',
+        }
+        request.add_query_param('TtsParam', json.dumps(data))  # type: ignore
+
+        response = client.do_action_with_exception(request) # type: ignore
+        print("[Aleo.Info Check Sync] Call Response", str(response, encoding='utf-8')) # type: ignore
+    

@@ -1786,6 +1786,34 @@ class DatabaseInsert(DatabaseBase):
                             # temporarily disable this as it seems we don't have lingering unconfirmed tx anymore
                             pass
                             # await self.cleanup_unconfirmed_transactions()
+                        
+                        if block.height % 360 == 0:
+                            cur_epoch = block.height // 360
+                            last_epoch_start_height = (cur_epoch - 1) * 360
+                            await cur.execute(
+                                "SELECT DISTINCT address FROM address_stake_reward "
+                                "WHERE height >= %s AND height < %s",
+                                (last_epoch_start_height, cur_epoch * 360)
+                            )
+                            validators = await cur.fetchall()
+                            validators_last_epoch_apr: dict[str, Any] = {}
+                            for validator in validators:
+                                await cur.execute(
+                                    "SELECT height, timestamp, committee_stake, stake_reward, delegate_reward "
+                                    "FROM address_stake_reward WHERE address = %s AND height >= %s AND height < %s "
+                                    "ORDER BY timestamp DESC ",
+                                    (validator["address"], last_epoch_start_height, block.height)
+                                )
+                                trends = await cur.fetchall()
+                                last_epoch_total_rewards = sum(trend["stake_reward"]+trend["delegate_reward"] for trend in trends)
+                                last_epoch_total_staked = sum(trend["committee_stake"] for trend in trends)
+                                last_epoch_apr = last_epoch_total_rewards / last_epoch_total_staked * 360 * 24 * 365 * 100
+                                validators_last_epoch_apr[validator["address"]] = float(last_epoch_apr)
+                            await self.redis.execute_command("MULTI") # type: ignore
+                            await self.redis.delete("validator_last_epoch_apr")
+                            await self.redis.hset("validator_last_epoch_apr", mapping={k: json.dumps(v) for k, v in validators_last_epoch_apr.items()})
+                            await self.redis.execute_command("EXEC") # type: ignore
+
 
                         signal.pthread_sigmask(signal.SIG_BLOCK, {signal.SIGINT})
                         await self._redis_cleanup(self.redis, self.redis_keys, block.height, False)
