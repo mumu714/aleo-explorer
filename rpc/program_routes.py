@@ -13,7 +13,7 @@ from aleo_types import DeployTransaction, Deployment, Program, \
     AcceptedDeploy, u32, AcceptedExecute, RejectedExecute, ExecuteTransaction, \
     FeeTransaction, RejectedExecution, Fee
 from db import Database
-from .utils import function_signature, out_of_sync_check
+from .utils import function_signature
 from .format import *
 
 

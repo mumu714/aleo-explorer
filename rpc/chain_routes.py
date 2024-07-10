@@ -20,7 +20,7 @@ from db import Database
 from util.global_cache import get_program
 from util.typing_exc import Unreachable
 from .classes import UIAddress
-from .utils import function_signature, get_future_argument, out_of_sync_check, function_definition
+from .utils import function_signature, get_future_argument
 from .format import *
 
 try:

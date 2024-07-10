@@ -60,7 +60,7 @@ async def index_route(request: Request):
     validators_count = await db.get_validators_size()
     provers_count, _ = await db.get_puzzle_reward_all()
     delegators = await db.get_bonded_mapping()
-    total_stake = await db.get_total_stake()
+    committee = await db.get_committee_at_height(latest_block.header.metadata.height)
     puzzle_reward_24H = await db.get_24H_puzzle_reward()
     block_reward_24H = await db.get_24H_block_reward()
     puzzle_reward_1M = await db.get_24H_puzzle_reward_1M()
@@ -74,7 +74,7 @@ async def index_route(request: Request):
         "validators_count": validators_count,
         "provers_count": provers_count,
         "delegators_count": len(delegators) - validators_count,
-        "total_stake": total_stake,
+        "total_stake": int(committee["total_stake"]),
         "recent_blocks": [format_number(recent_block) for recent_block in recent_blocks],
         "network_speed": str(network_speed),
         "total_reward": puzzle_reward_24H + block_reward_24H,
