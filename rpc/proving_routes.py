@@ -30,6 +30,13 @@ async def calc_route(request: Request):
 
 async def validators_route(request: Request):
     db: Database = request.app.state.db
+    sort_tag = request.query_params.get("sort")
+    if sort_tag is None:
+        sort_tag = "stake"
+    if sort_tag not in ["stake", "reward", "vote_power", "last_epoch_apr"]:
+        raise HTTPException(status_code=400, detail="Sort Tag Error")
+    if sort_tag == "reward":
+        sort_tag = "staking_reward"
     try:
         limit = request.query_params.get("limit")
         offset = request.query_params.get("offset")
@@ -50,8 +57,8 @@ async def validators_route(request: Request):
     if offset < 0 or offset > total_validators:
         raise HTTPException(status_code=400, detail="Invalid page")
     committee = await db.get_committee_at_height(latest_height)
-    validators_data = await db.get_validators_range_at_height(latest_height, offset, offset + limit)
-    data: list[dict[str, Any]] = []
+    validators_data = await db.get_validators_at_height(latest_height)
+    all_data: list[dict[str, Any]] = []
     for validator in validators_data:
         stake_reward = await db.get_address_stake_reward(validator["address"])
         delegate_reward = await db.get_address_delegate_reward(validator["address"])
@@ -75,7 +82,7 @@ async def validators_route(request: Request):
             plaintext = cast(StructPlaintext, value.plaintext)
             commission = cast(LiteralPlaintext, plaintext["commission"])
             commission_value = int(cast(Int, commission.literal.primitive))
-        data.append({
+        all_data.append({
             "address": validator["address"],
             "address_type": "Validator",
             "staking_reward": stake_reward + delegate_reward,
@@ -86,6 +93,12 @@ async def validators_route(request: Request):
             "uptime": validator["uptime"] * 100,
             "vote_power": int(validator["stake"]) / int(committee["total_stake"]) * 100
         })
+    sort_data = sorted(all_data, key=lambda e: e[sort_tag], reverse=True)
+    if offset + limit > len(sort_data):
+        data = sort_data[offset:]
+    else:
+        data = sort_data[offset:offset + limit]
+
     ctx = {
         "validators": data,
         "address_count": total_validators,

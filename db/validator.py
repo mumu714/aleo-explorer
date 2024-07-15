@@ -195,20 +195,50 @@ class DatabaseValidator(DatabaseBase):
                     await self.message_callback(ExplorerMessage(ExplorerMessage.Type.DatabaseError, e))
                     raise
 
-    async def get_validators(self, start: int, end: int) -> tuple[dict[str, Any], list[dict[str, Any]]]:
+    async def get_validators_at_height(self, height: int) -> list[dict[str, Any]]:
         async with self.pool.connection() as conn:
             async with conn.cursor() as cur:
                 try:
-                    await cur.execute("SELECT * FROM committee_history ORDER BY height DESC LIMIT 1")
-                    committee = await cur.fetchone()
-                    if committee is None:
-                        raise RuntimeError("no committee in database")
-                    await cur.execute("SELECT * FROM committee_history_member WHERE committee_id = %s "
-                                      "ORDER BY stake DESC LIMIT %s OFFSET %s",
-                                      (committee["id"], end - start, start)
-                            )
-                    committee_member = await cur.fetchall()
-                    return committee, committee_member
+                    await cur.execute(
+                        "SELECT chm.address, chm.stake, chm.is_open FROM committee_history_member chm "
+                        "JOIN committee_history ch ON chm.committee_id = ch.id "
+                        "WHERE ch.height = %s "
+                        "ORDER BY chm.stake DESC ",(height,)
+                    )
+                    validators = await cur.fetchall()
+                    await cur.execute("SELECT timestamp FROM block WHERE height = %s", (height,))
+                    res = await cur.fetchone()
+                    if res:
+                        timestamp = res["timestamp"]
+                    else:
+                        return []
+                    await cur.execute(
+                        "WITH va AS "
+                        "    (SELECT unnest(array_agg(DISTINCT d.author)) AS author "
+                        "     FROM BLOCK b "
+                        "     JOIN authority a ON a.block_id = b.id "
+                        "     JOIN dag_vertex d ON d.authority_id = a.id "
+                        "     WHERE b.timestamp > %s "
+                        "     GROUP BY d.authority_id) "
+                        "SELECT author, count(author) FROM va "
+                        "GROUP BY author",
+                        (timestamp - 86400,)
+                    )
+                    res = await cur.fetchall()
+                    validator_counts = {v["author"]: v["count"] for v in res}
+                    await cur.execute(
+                        "SELECT count(*) FROM block WHERE timestamp > %s",
+                        (timestamp - 86400,)
+                    )
+                    res = await cur.fetchone()
+                    if res:
+                        block_count = res["count"]
+                    else:
+                        return []
+                    for validator in validators:
+                        validator["uptime"] = validator_counts.get(validator["address"], 0) / block_count
+
+                    return validators
                 except Exception as e:
                     await self.message_callback(ExplorerMessage(ExplorerMessage.Type.DatabaseError, e))
                     raise
@@ -228,22 +258,6 @@ class DatabaseValidator(DatabaseBase):
                     await self.message_callback(ExplorerMessage(ExplorerMessage.Type.DatabaseError, e))
                     raise
 
-    async def get_validators_size(self) -> int:
-        async with self.pool.connection() as conn:
-            async with conn.cursor() as cur:
-                try:
-                    await cur.execute("SELECT * FROM committee_history ORDER BY height DESC LIMIT 1")
-                    committee = await cur.fetchone()
-                    if committee is None:
-                        raise RuntimeError("no committee in database")
-                    await cur.execute("SELECT COUNT(*) FROM committee_history_member WHERE committee_id = %s",
-                                      (committee["id"],))
-                    if (res := await cur.fetchone()) is None:
-                        return 0
-                    return res["count"]
-                except Exception as e:
-                    await self.message_callback(ExplorerMessage(ExplorerMessage.Type.DatabaseError, e))
-                    raise
 
     async def get_validator_bonds(self, address: str) -> list[dict[str, Any]]:
         try:
