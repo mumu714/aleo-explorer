@@ -1806,8 +1806,8 @@ class DatabaseInsert(DatabaseBase):
                                 )
                                 trends = await cur.fetchall()
                                 last_epoch_total_rewards = sum(trend["stake_reward"]+trend["delegate_reward"] for trend in trends)
-                                last_epoch_total_staked = sum(trend["committee_stake"] for trend in trends)
-                                last_epoch_apr = last_epoch_total_rewards / last_epoch_total_staked * 360 * 24 * 365 * 100
+                                last_epoch_avg_staked = sum(trend["committee_stake"] for trend in trends) / 360
+                                last_epoch_apr = last_epoch_total_rewards / last_epoch_avg_staked * 24 * 365 * 100
                                 validators_last_epoch_apr[validator["address"]] = float(last_epoch_apr)
                             await self.redis.execute_command("MULTI") # type: ignore
                             await self.redis.delete("validator_last_epoch_apr")
@@ -1978,7 +1978,7 @@ class DatabaseInsert(DatabaseBase):
             async with conn.cursor() as cur:
                 try:
                     await cur.execute(
-                        "SELECT * FROM hashrate ORDER BY timestamp DESC LIMIT %s OFFSET %s",(288, 0)
+                        "SELECT * FROM hashrate ORDER BY timestamp DESC"
                     )
                     res = await cur.fetchall()
                     for hashrate_data in res:

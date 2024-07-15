@@ -57,7 +57,7 @@ async def index_route(request: Request):
     network_speed = await db.get_network_speed(900)
     sync_info = await out_of_sync_check(request.app.state.session, db)
     latest_block = await db.get_latest_block()
-    validators_count = await db.get_validators_size()
+    validators_count = await db.get_validator_count_at_height(latest_block.height)
     provers_count, _ = await db.get_puzzle_reward_all()
     delegators = await db.get_bonded_mapping()
     committee = await db.get_committee_at_height(latest_block.header.metadata.height)
@@ -101,7 +101,7 @@ routes = [
     Route("/solution", solution_route),
     Route("/search", search_route),
     Route("/blocks", blocks_route),
-    Route("/hashrate", hashrate_route),
+    Route("/hashrate/{type}", hashrate_route),
     Route("/coinbase", coinbase_route),
     Route("/proof_target/{type}", proof_target_route),
     Route("/unconfirmed_transactions", unconfirmed_transactions_route),

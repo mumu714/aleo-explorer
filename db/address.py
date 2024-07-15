@@ -497,16 +497,20 @@ LIMIT 10
                     await self.message_callback(ExplorerMessage(ExplorerMessage.Type.DatabaseError, e))
                     raise
 
-    async def get_hashrate(self, start: int, end: int) -> list[dict[str, Any]]:
+    async def get_hashrate(self, interval: int) -> list[dict[str, Any]]:
         async with self.pool.connection() as conn:
             async with conn.cursor() as cur:
                 try:
-                    await cur.execute(
-                        "SELECT * FROM hashrate "
-                        "ORDER BY timestamp DESC "
-                        "LIMIT %s OFFSET %s",
-                        (end - start, start)
-                    )
+                    now = int(time.time())
+                    if interval == 0:
+                        await cur.execute(
+                            "SELECT * FROM hashrate ORDER BY timestamp DESC"
+                        )
+                    else:
+                        await cur.execute(
+                            "SELECT * FROM hashrate "
+                            "WHERE timestamp > %s ORDER BY timestamp DESC",(now - interval,)
+                        )
                     return await cur.fetchall()
                 except Exception as e:
                     await self.message_callback(ExplorerMessage(ExplorerMessage.Type.DatabaseError, e))

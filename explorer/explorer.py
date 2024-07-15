@@ -260,7 +260,7 @@ class Explorer:
         request.add_query_param('CalledNumber', called_number)   # type: ignore
         request.add_query_param('TtsCode', TtsCode)   # type: ignore
         data = {
-            "minerId": 'Aleo.Info',
+            "minerId": 'Aleo Info',
             "errorDescribe": 'Explorer Error',
         }
         request.add_query_param('TtsParam', json.dumps(data))  # type: ignore

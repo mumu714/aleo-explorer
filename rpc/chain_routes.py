@@ -985,7 +985,15 @@ async def blocks_route(request: Request):
 
 async def hashrate_route(request: Request):
     db: Database = request.app.state.db
-    hashrate_data = await db.get_hashrate(0, 288)
+    type = request.path_params["type"]
+    interval = {
+        "1d": 86400,
+        "7d": 86400 * 7,
+        "all": 0
+    }
+    if type not in interval.keys():
+        raise HTTPException(status_code=400, detail="Error trending type")
+    hashrate_data = await db.get_hashrate(interval[type])
     data: list[dict[str, Any]] = []
     for line in hashrate_data:
         data.append({
@@ -1019,8 +1027,6 @@ async def proof_target_route(request: Request):
     db: Database = request.app.state.db
     type = request.path_params["type"]
     interval = {
-        "15min": 900,
-        "1h": 3600,
         "1d": 86400,
         "7d": 86400 * 7,
         "all": 0
