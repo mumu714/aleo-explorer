@@ -1107,6 +1107,20 @@ class DatabaseInsert(DatabaseBase):
                 cast(u64, cast(LiteralPlaintext, amount).literal.primitive)
             )
         return stakers
+    
+    async def get_block_timestamp(self, height: int) -> int:
+        async with self.pool.connection() as conn:
+            async with conn.cursor() as cur:
+                try:
+                    await cur.execute("SELECT timestamp FROM block WHERE height = %s", (height,))
+                    result = await cur.fetchone()
+                    if result is None:
+                        raise RuntimeError("no blocks in database")
+                    return result['timestamp']
+                except Exception as e:
+                    await self.message_callback(ExplorerMessage(ExplorerMessage.Type.DatabaseError, e))
+                    raise
+
 
     @staticmethod
     @profile
@@ -1788,8 +1802,11 @@ class DatabaseInsert(DatabaseBase):
                             # await self.cleanup_unconfirmed_transactions()
                         
                         if block.height % 360 == 0:
+                            cur_block_timestamp = block.header.metadata.timestamp
                             cur_epoch = block.height // 360
                             last_epoch_start_height = (cur_epoch - 1) * 360
+                            last_epoch_start_timestamp = await self.get_block_timestamp(last_epoch_start_height)
+                            last_epoch_time = int(cur_block_timestamp - last_epoch_start_timestamp)
                             await cur.execute(
                                 "SELECT DISTINCT address FROM address_stake_reward "
                                 "WHERE height >= %s AND height < %s",
@@ -1807,7 +1824,7 @@ class DatabaseInsert(DatabaseBase):
                                 trends = await cur.fetchall()
                                 last_epoch_total_rewards = sum(trend["stake_reward"]+trend["delegate_reward"] for trend in trends)
                                 last_epoch_avg_staked = sum(trend["committee_stake"] for trend in trends) / 360
-                                last_epoch_apr = last_epoch_total_rewards / last_epoch_avg_staked * 24 * 365 * 100
+                                last_epoch_apr = float(last_epoch_total_rewards / last_epoch_avg_staked) * (3600 / last_epoch_time) * 24 * 365 * 100
                                 validators_last_epoch_apr[validator["address"]] = float(last_epoch_apr)
                             await self.redis.execute_command("MULTI") # type: ignore
                             await self.redis.delete("validator_last_epoch_apr")
