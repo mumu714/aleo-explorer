@@ -117,7 +117,7 @@ routes = [
     Route("/incentives", incentives_route),
     Route("/validators", validators_route),
     Route("/estimate_fee", estimate_fee_route),
-    Route("/validator_apr", validator_apr_route),
+    Route("/validator_dpr", validator_dpr_route),
     Route("/validator/bonds", validator_bonds_route),
     Route("/validator/trending", validator_trending_route),
     Route("/credits", credits_route),
