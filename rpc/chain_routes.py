@@ -411,7 +411,7 @@ async def transaction_route(request: Request):
                 transition: Transition
                 rejected_transitions.append({
                     "transition_id": str(transition.id),
-                    "action": await function_signature(db, str(transition.program_id), str(transition.function_name)),
+                    "action": f"{transition.program_id}/{transition.function_name}",
                 })
         else:
             raise HTTPException(status_code=550, detail="Unsupported transaction type")
