@@ -1178,7 +1178,7 @@ async def estimate_fee_route(request: Request):
     return JSONResponse(ctx)
 
 
-async def validator_apr_route(request: Request):
+async def validator_dpr_route(request: Request):
     db: Database = request.app.state.db
     address = request.query_params.get("a")
     if address is None:
@@ -1186,8 +1186,25 @@ async def validator_apr_route(request: Request):
     now = int(time.time())
     validator_trend = await db.get_validator_trend(address, now - 86400)
     dpr = sum((trend["stake_reward"]+trend["delegate_reward"])/trend["committee_stake"] for trend in validator_trend)
+    address_key = LiteralPlaintext(
+            literal=Literal(
+                type_=Literal.Type.Address,
+                primitive=Address.loads(address),
+            )
+        )
+    address_key_bytes = address_key.dump()
+    committee_key_id = cached_get_key_id("credits.aleo", "committee", address_key_bytes)
+    committee_state_bytes = await db.get_mapping_value("credits.aleo", "committee", committee_key_id)
+    if committee_state_bytes is None:
+        commission_value = 0 
+    else:
+        value = cast(PlaintextValue, Value.load(BytesIO(committee_state_bytes)))
+        plaintext = cast(StructPlaintext, value.plaintext)
+        commission = cast(LiteralPlaintext, plaintext["commission"])
+        commission_value = int(cast(Int, commission.literal.primitive))
     ctx = {
-        "daily_percentage_rate": float(dpr),
+        "commission": commission_value,
+        "daily_percentage_rate": float(dpr)*(1-commission_value*0.01),
         "validator": address,
     }
     return JSONResponse(ctx)
