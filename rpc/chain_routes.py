@@ -1028,6 +1028,16 @@ async def epoch_hashrate_route(request: Request):
     }
     return JSONResponse(ctx)
 
+
+async def epoch_hash_route(request: Request):
+    db: Database = request.app.state.db
+    epoch_hashrate_data = await db.get_epoch_hash()
+    print(epoch_hashrate_data)
+    ctx = {
+        "epoch_hash": epoch_hashrate_data,
+    }
+    return JSONResponse(ctx)
+
 async def coinbase_route(request: Request):
     db: Database = request.app.state.db
     total_blocks = await db.get_latest_height()

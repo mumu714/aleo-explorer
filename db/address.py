@@ -4,6 +4,7 @@ from __future__ import annotations
 import time
 
 from aleo_types import *
+from db.block import DatabaseBlock
 from explorer.types import Message as ExplorerMessage
 from .base import DatabaseBase
 
@@ -568,6 +569,29 @@ LIMIT 10
                             "WHERE timestamp > %s ORDER BY timestamp DESC",(now - interval,)
                         )
                     return await cur.fetchall()
+                except Exception as e:
+                    await self.message_callback(ExplorerMessage(ExplorerMessage.Type.DatabaseError, e))
+                    raise
+
+    
+    async def get_epoch_hash(self) -> list[dict[str, Any]]:
+        async with self.pool.connection() as conn:
+            async with conn.cursor() as cur:
+                try:
+                    last_height = await DatabaseBlock.get_latest_height(self)
+                    if last_height is None:
+                        raise NotImplementedError
+                    height = 0
+                    blocks: list[Any] = []
+                    while height < last_height:
+                        await cur.execute(
+                            "SELECT height, block_hash FROM block WHERE height = %s",(height,)
+                        )
+                        res = await cur.fetchone()
+                        if res is not None:
+                            blocks.append(res)
+                        height += 360
+                    return blocks
                 except Exception as e:
                     await self.message_callback(ExplorerMessage(ExplorerMessage.Type.DatabaseError, e))
                     raise
