@@ -14,6 +14,7 @@ from redis.asyncio import Redis
 
 from aleo_types import *
 from aleo_types.cached import cached_get_key_id, cached_get_mapping_id, cached_compute_key_to_address
+from db.block import DatabaseBlock
 from disasm.utils import value_type_to_mode_type_str, plaintext_type_to_str
 from explorer.types import Message as ExplorerMessage
 from util.global_cache import global_mapping_cache
@@ -449,7 +450,7 @@ class DatabaseInsert(DatabaseBase):
                 else:
                     raise NotImplementedError
 
-            await DatabaseInsert._insert_address_info(conn, address_list, exe_tx_db_id, fee_db_id, str(transition.function_name))
+            await DatabaseInsert._insert_address_info(conn, address_list, exe_tx_db_id, fee_db_id, f"{transition.program_id}/{transition.function_name}")
 
             await cur.execute(
                 "SELECT id FROM program WHERE program_id = %s", (str(transition.program_id),)
@@ -1801,12 +1802,13 @@ class DatabaseInsert(DatabaseBase):
                             pass
                             # await self.cleanup_unconfirmed_transactions()
                         
-                        if block.height % 360 == 0:
+                        if block.height % 360 == 0 and block.height != 0:
                             cur_block_timestamp = block.header.metadata.timestamp
                             cur_epoch = block.height // 360
                             last_epoch_start_height = (cur_epoch - 1) * 360
                             last_epoch_start_timestamp = await self.get_block_timestamp(last_epoch_start_height)
                             last_epoch_time = int(cur_block_timestamp - last_epoch_start_timestamp)
+                            await self.save_epoch_hashrate(last_epoch_start_height, last_epoch_time, cur_block_timestamp)
                             await cur.execute(
                                 "SELECT DISTINCT address FROM address_stake_reward "
                                 "WHERE height >= %s AND height < %s",
@@ -1892,6 +1894,20 @@ class DatabaseInsert(DatabaseBase):
                         "INSERT INTO hashrate (timestamp, hashrate) "
                         "VALUES (%s, %s) ",
                         (now, hashrate)
+                    )
+                except Exception as e:
+                    await self.message_callback(ExplorerMessage(ExplorerMessage.Type.DatabaseError, e))
+                    raise
+
+    async def save_epoch_hashrate(self, height: int, interval: int, timestamp: int):
+        async with self.pool.connection() as conn:
+            async with conn.cursor() as cur:
+                try:
+                    hashrate = await DatabaseAddress.get_network_epoch_speed(self, height, interval)
+                    await cur.execute(
+                        "INSERT INTO epoch_hashrate (height, timestamp, hashrate) "
+                        "VALUES (%s, %s, %s) ",
+                        (height+360, timestamp, hashrate)
                     )
                 except Exception as e:
                     await self.message_callback(ExplorerMessage(ExplorerMessage.Type.DatabaseError, e))
@@ -2041,6 +2057,54 @@ class DatabaseInsert(DatabaseBase):
                     await self.redis.set("24H_reward:puzzle", int(puzzle_rewards))
                     await self.redis.set("24H_reward:block", int(block_reward))
                     await self.redis.set("24H_reward:1M_puzzle", int(puzzle_rewards_1M))
+                except Exception as e:
+                    await self.message_callback(ExplorerMessage(ExplorerMessage.Type.DatabaseError, e))
+                    raise
+
+    async def save_history_epoch_hashrate(self):
+        async with self.pool.connection() as conn:
+            async with conn.cursor() as cur:
+                try:
+                    last_height = await DatabaseBlock.get_latest_height(self)
+                    if last_height is None:
+                        raise NotImplementedError
+                    height = 360
+                    while height <= last_height:
+                        await cur.execute(
+                            "SELECT b.height FROM solution s "
+                            "JOIN puzzle_solution ps ON ps.id = s.puzzle_solution_id "
+                            "JOIN block b ON b.id = ps.block_id "
+                            "WHERE height > %s AND height <= %s",
+                            (height-360, height)
+                        )
+                        partial_solutions = await cur.fetchall()
+                        heights = list(map(lambda x: x['height'], partial_solutions))
+                        ref_heights = list(map(lambda x: x - 1, set(heights)))
+                        await cur.execute(
+                            "SELECT height, proof_target FROM block WHERE height = ANY(%s::bigint[])", (ref_heights,)
+                        )
+                        ref_proof_targets = await cur.fetchall()
+                        ref_proof_target_dict = dict(map(lambda x: (x['height'], x['proof_target']), ref_proof_targets))
+                        total_solutions = 0
+                        for height in heights:
+                            total_solutions += ref_proof_target_dict[height - 1]
+                        await cur.execute(
+                            "SELECT timestamp FROM block WHERE height = %s",(height,)
+                        )
+                        epoch_end_timestamp = await cur.fetchone()
+                        await cur.execute(
+                            "SELECT timestamp FROM block WHERE height = %s",(height-360,)
+                        )
+                        epoch_start_timestamp = await cur.fetchone()
+                        if epoch_end_timestamp is None or epoch_start_timestamp is None:
+                            raise NotImplementedError
+                        hashrate = total_solutions / (epoch_end_timestamp["timestamp"]-epoch_start_timestamp["timestamp"])
+                        await cur.execute(
+                            "INSERT INTO epoch_hashrate (height, timestamp, hashrate) VALUES (%s, %s, %s) "
+                            "ON CONFLICT (height) DO UPDATE SET hashrate = %s",
+                            (height, epoch_end_timestamp["timestamp"], hashrate, hashrate)
+                        )
+                        height += 360
                 except Exception as e:
                     await self.message_callback(ExplorerMessage(ExplorerMessage.Type.DatabaseError, e))
                     raise

@@ -1005,6 +1005,29 @@ async def hashrate_route(request: Request):
     }
     return JSONResponse(ctx)
 
+async def epoch_hashrate_route(request: Request):
+    db: Database = request.app.state.db
+    type = request.path_params["type"]
+    interval = {
+        "1d": 86400,
+        "7d": 86400 * 7,
+        "all": 0
+    }
+    if type not in interval.keys():
+        raise HTTPException(status_code=400, detail="Error trending type")
+    epoch_hashrate_data = await db.get_epoch_hashrate(interval[type])
+    data: list[dict[str, Any]] = []
+    for line in epoch_hashrate_data:
+        data.append({
+            "height": line["height"],
+            "timestamp": line["timestamp"],
+            "hashrate": str(line["hashrate"])
+            })
+    ctx = {
+        "epoch_hashrate": data,
+    }
+    return JSONResponse(ctx)
+
 async def coinbase_route(request: Request):
     db: Database = request.app.state.db
     total_blocks = await db.get_latest_height()

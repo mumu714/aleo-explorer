@@ -368,6 +368,34 @@ LIMIT 10
                     await self.message_callback(ExplorerMessage(ExplorerMessage.Type.DatabaseError, e))
                     raise
 
+    async def get_network_epoch_speed(self, height: int, interval: int) -> float:
+        async with self.pool.connection() as conn:
+            async with conn.cursor() as cur:
+                try:
+                    await cur.execute(
+                        "SELECT b.height FROM solution s "
+                        "JOIN puzzle_solution ps ON s.puzzle_solution_id = ps.id "
+                        "JOIN block b ON ps.block_id = b.id "
+                        "WHERE height > %s",
+                        (height,)
+                    )
+                    partial_solutions = await cur.fetchall()
+                    heights = list(map(lambda x: x['height'], partial_solutions))
+                    ref_heights = list(map(lambda x: x - 1, set(heights)))
+                    await cur.execute(
+                        "SELECT height, proof_target FROM block WHERE height = ANY(%s::bigint[])", (ref_heights,)
+                    )
+                    ref_proof_targets = await cur.fetchall()
+                    ref_proof_target_dict = dict(map(lambda x: (x['height'], x['proof_target']), ref_proof_targets))
+                    total_solutions = 0
+                    for height in heights:
+                        total_solutions += ref_proof_target_dict[height - 1]
+                    return total_solutions / interval
+                except Exception as e:
+                    await self.message_callback(ExplorerMessage(ExplorerMessage.Type.DatabaseError, e))
+                    raise
+
+
     async def get_puzzle_commitment(self, solution_id: str) -> Optional[dict[str, Any]]:
         async with self.pool.connection() as conn:
             async with conn.cursor() as cur:
@@ -443,10 +471,19 @@ LIMIT 10
                     row = await cur.fetchone()
                     if row is None:
                         return None
+                    await cur.execute(
+                        "SELECT COUNT(DISTINCT at.transition_id) FROM address_transition at "
+                        "WHERE at.address = %s",(address,)
+                    )
+                    res = await cur.fetchone()
+                    count = 0
+                    if res is not None:
+                        count = res["count"]
                     return {
                         'execution_transactions': row['execution_ts_num'],
                         'fee_transactions': row['fee_ts_num'],
-                        'functions': row['functions'],
+                        'transactions_count': count,
+                        'functions': list(set([i.split("/")[1] if "/" in i else i for i in row['functions']])),
                         'favorites': row['favorite']
                     }
                 except Exception as e:
@@ -509,6 +546,25 @@ LIMIT 10
                     else:
                         await cur.execute(
                             "SELECT * FROM hashrate "
+                            "WHERE timestamp > %s ORDER BY timestamp DESC",(now - interval,)
+                        )
+                    return await cur.fetchall()
+                except Exception as e:
+                    await self.message_callback(ExplorerMessage(ExplorerMessage.Type.DatabaseError, e))
+                    raise
+    
+    async def get_epoch_hashrate(self, interval: int) -> list[dict[str, Any]]:
+        async with self.pool.connection() as conn:
+            async with conn.cursor() as cur:
+                try:
+                    now = int(time.time())
+                    if interval == 0:
+                        await cur.execute(
+                            "SELECT * FROM epoch_hashrate ORDER BY timestamp DESC"
+                        )
+                    else:
+                        await cur.execute(
+                            "SELECT * FROM epoch_hashrate "
                             "WHERE timestamp > %s ORDER BY timestamp DESC",(now - interval,)
                         )
                     return await cur.fetchall()
