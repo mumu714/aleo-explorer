@@ -551,6 +551,7 @@ async def address_route(request: Request):
         address_info = {
             "execution_transactions": 0,
             "fee_transactions": 0,
+            "transactions_count": 0,
             "functions": functions,
             "favorites": favorites
         }
@@ -573,6 +574,7 @@ async def address_route(request: Request):
         "total_programs": program_count,
         "total_execution_transactions": address_info["execution_transactions"],
         "total_fee_transactions": address_info["fee_transactions"],
+        "transactions_count": address_info["transactions_count"],
         "function_names": address_info["functions"],
         "favorites": address_info["favorites"],
         "speed": float(speed),
@@ -667,7 +669,7 @@ async def address_transaction_route(request: Request):
     address_info = await db.get_address_info(address)
     if address_info is None:
         raise HTTPException(status_code=400, detail="Invalid page")
-    address_transaction_count = address_info["execution_transactions"]+address_info["fee_transactions"]
+    address_transaction_count = address_info["transactions_count"]
     if offset < 0 or offset > address_transaction_count:
         raise HTTPException(status_code=400, detail="Invalid page")
     transitions = await db.get_transition_by_address(address, offset, offset + limit)
@@ -717,6 +719,7 @@ async def address_transaction_route(request: Request):
         "address_trunc": address[:14] + "..." + address[-6:],
         "total_execution_transactions": address_info["execution_transactions"],
         "total_fee_transactions": address_info["fee_transactions"],
+        "transactions_count": address_info["transactions_count"],
         "transactions": data,
     }
     return JSONResponse(ctx)

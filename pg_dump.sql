@@ -301,6 +301,16 @@ CREATE TABLE explorer.hashrate (
 );
 
 --
+-- Name: epoch_hashrate; Type: TABLE; Schema: explorer; Owner: -
+--
+
+CREATE TABLE explorer.epoch_hashrate (
+    height bigint NOT NULL,
+    "timestamp" bigint NOT NULL,
+    hashrate numeric(40,10) NOT NULL
+);
+
+--
 -- Name: coinbase; Type: TABLE; Schema: explorer; Owner: -
 --
 
@@ -2695,6 +2705,15 @@ ALTER TABLE ONLY explorer.future
 
 ALTER TABLE ONLY explorer.hashrate
     ADD CONSTRAINT hashrate_pk PRIMARY KEY (timestamp);
+
+
+--
+-- Name: epoch_hashrate epoch_hashrate_pk; Type: CONSTRAINT; Schema: explorer; Owner: -
+--
+
+ALTER TABLE ONLY explorer.epoch_hashrate
+    ADD CONSTRAINT epoch_hashrate_pk PRIMARY KEY (height);
+
 
 --
 -- Name: coinbase coinbase_pk; Type: CONSTRAINT; Schema: explorer; Owner: -
