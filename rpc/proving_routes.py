@@ -9,6 +9,7 @@ from starlette.responses import JSONResponse
 
 from aleo_types import PlaintextValue, LiteralPlaintext, Literal, \
     Address, Value, StructPlaintext, FutureTransitionOutput, PlaintextArgument
+from aleo_types.cached import cached_get_key_id
 from db import Database
 from .classes import UIAddress
 from .utils import get_address_type
