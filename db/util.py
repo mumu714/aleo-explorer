@@ -141,7 +141,7 @@ class DatabaseUtil(DatabaseBase):
                                 if (res := await cur.fetchone()) is None:
                                         raise RuntimeError(f"missing transaction: {t.id}")
                                 await cur.execute(
-                                        "UPDATE transition SET confirmed_transaction_id = NULL, transaction_id = NULL WHERE transaction_id = %s",
+                                        "UPDATE transition SET confirmed_transaction_id = NULL WHERE transaction_id = %s",
                                         (res["id"],)
                                 )
                                 if isinstance(ct, (RejectedDeploy, RejectedExecute)):

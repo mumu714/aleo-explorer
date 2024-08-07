@@ -213,30 +213,26 @@ class DatabaseValidator(DatabaseBase):
                     else:
                         return []
                     await cur.execute(
-                        "WITH va AS "
-                        "    (SELECT unnest(array_agg(DISTINCT d.author)) AS author "
-                        "     FROM BLOCK b "
-                        "     JOIN authority a ON a.block_id = b.id "
-                        "     JOIN dag_vertex d ON d.authority_id = a.id "
-                        "     WHERE b.timestamp > %s "
-                        "     GROUP BY d.authority_id) "
-                        "SELECT author, count(author) FROM va "
-                        "GROUP BY author",
+                        "SELECT validator, count(validator) FROM block_validator bv "
+                        "JOIN block b ON bv.block_id = b.id "
+                        "WHERE b.timestamp > %s "
+                        "GROUP BY validator",
                         (timestamp - 86400,)
                     )
                     res = await cur.fetchall()
-                    validator_counts = {v["author"]: v["count"] for v in res}
+                    validator_counts = {v["validator"]: v["count"] for v in res}
                     await cur.execute(
-                        "SELECT count(*) FROM block WHERE timestamp > %s",
+                        "SELECT address, count(chm.address) FROM committee_history_member chm "
+                        "JOIN committee_history ch ON chm.committee_id = ch.id "
+                        "JOIN block b ON ch.height = b.height "
+                        "WHERE b.timestamp > %s "
+                        "GROUP BY address",
                         (timestamp - 86400,)
                     )
-                    res = await cur.fetchone()
-                    if res:
-                        block_count = res["count"]
-                    else:
-                        return []
+                    res = await cur.fetchall()
+                    validator_in_counts = {v["address"]: v["count"] for v in res}
                     for validator in validators:
-                        validator["uptime"] = validator_counts.get(validator["address"], 0) / block_count
+                        validator["uptime"] = validator_counts.get(validator["address"], 0) / validator_in_counts.get(validator["address"], 1)
 
                     return validators
                 except Exception as e:

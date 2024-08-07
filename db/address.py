@@ -480,11 +480,14 @@ LIMIT 10
                     count = 0
                     if res is not None:
                         count = res["count"]
+                    functions = row['functions']
+                    if functions is not None:
+                        functions = list(set([i.split("/")[1] for i in row['functions']]))
                     return {
                         'execution_transactions': row['execution_ts_num'],
                         'fee_transactions': row['fee_ts_num'],
                         'transactions_count': count,
-                        'functions': list(set([i.split("/")[1] if "/" in i else i for i in row['functions']])),
+                        'functions': functions,
                         'favorites': row['favorite']
                     }
                 except Exception as e:
