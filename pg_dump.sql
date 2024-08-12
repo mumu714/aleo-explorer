@@ -833,7 +833,8 @@ CREATE TABLE explorer.dag_vertex_transmission_id (
     type explorer.transmission_id_type NOT NULL,
     index integer NOT NULL,
     commitment text,
-    transaction_id text
+    transaction_id text,
+    checksum text NOT NULL
 );
 
 
