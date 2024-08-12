@@ -917,9 +917,9 @@ class DatabaseBlock(DatabaseBase):
                         if tid["type"] == TransmissionID.Type.Ratification.name:
                             tids.append(RatificationTransmissionID())
                         elif tid["type"] == TransmissionID.Type.Solution.name:
-                            tids.append(SolutionTransmissionID(id_=SolutionID.loads(tid["commitment"]), checksum=u128()))
+                            tids.append(SolutionTransmissionID(id_=SolutionID.loads(tid["commitment"]), checksum=u128(int(tid["checksum"]))))
                         elif tid["type"] == TransmissionID.Type.Transaction.name:
-                            tids.append(TransactionTransmissionID(id_=TransactionID.loads(tid["transaction_id"]), checksum=u128()))
+                            tids.append(TransactionTransmissionID(id_=TransactionID.loads(tid["transaction_id"]), checksum=u128(int(tid["checksum"]))))
 
                     certificates.append(
                         BatchCertificate(

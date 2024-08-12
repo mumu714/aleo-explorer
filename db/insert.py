@@ -1503,19 +1503,19 @@ class DatabaseInsert(DatabaseBase):
                                                 (vertex_db_id, list(map(str, prev_cert_ids)))
                                             )
 
-                                    tid_copy_data: list[tuple[int, str, int, Optional[str], Optional[str]]] = []
+                                    tid_copy_data: list[tuple[int, str, int, Optional[str], Optional[str], Optional[str]]] = []
                                     for tid_index, transmission_id in enumerate(certificate.batch_header.transmission_ids):
                                         if isinstance(transmission_id, SolutionTransmissionID):
-                                            tid_copy_data.append((vertex_db_id, transmission_id.type.name, tid_index, str(transmission_id.id), None))
+                                            tid_copy_data.append((vertex_db_id, transmission_id.type.name, tid_index, str(transmission_id.id), None, str(transmission_id.checksum)))
                                             # dag_transmission_ids[0][str(transmission_id.id)] = vertex_db_id
                                         elif isinstance(transmission_id, TransactionTransmissionID):
-                                            tid_copy_data.append((vertex_db_id, transmission_id.type.name, tid_index, None, str(transmission_id.id)))
+                                            tid_copy_data.append((vertex_db_id, transmission_id.type.name, tid_index, None, str(transmission_id.id), str(transmission_id.checksum)))
                                             # dag_transmission_ids[1][str(transmission_id.id)] = vertex_db_id
                                         elif isinstance(transmission_id, RatificationTransmissionID):
-                                            tid_copy_data.append((vertex_db_id, transmission_id.type.name, tid_index, None, None))
+                                            tid_copy_data.append((vertex_db_id, transmission_id.type.name, tid_index, None, None, None))
                                         else:
                                             raise NotImplementedError
-                                    async with cur.copy("COPY dag_vertex_transmission_id (vertex_id, type, index, commitment, transaction_id) FROM STDIN") as copy:
+                                    async with cur.copy("COPY dag_vertex_transmission_id (vertex_id, type, index, commitment, transaction_id, checksum) FROM STDIN") as copy:
                                         for row in tid_copy_data:
                                             await copy.write_row(row)
                             for validator in validators:
@@ -1679,17 +1679,7 @@ class DatabaseInsert(DatabaseBase):
                                 for address, reward in address_puzzle_rewards.items():
                                     pipe = self.redis.pipeline()
                                     pipe.hincrby("address_puzzle_reward", address, reward)
-                                #     if block.height >= 62196 and block.header.metadata.timestamp < 1721059200:
-                                #         current_data = await self.redis.hget("address_incentive_puzzle_reward", address)
-                                #         if current_data is None:
-                                #             current_data = {"reward": 0, "height": 0}
-                                #         else:
-                                #             current_data = json.loads(current_data)
-                                #         # 更新 reward 和 height
-                                #         current_data["reward"] += reward
-                                #         current_data["height"] = block.height
-                                #         pipe.hset("address_incentive_puzzle_reward", address, json.dumps(current_data))
-                                #     await pipe.execute() # type: ignore
+                                    await pipe.execute() # type: ignore
 
                         for aborted in block.aborted_transactions_ids:
                             await cur.execute(

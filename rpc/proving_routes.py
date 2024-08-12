@@ -1176,7 +1176,7 @@ async def estimate_fee_route(request: Request):
         })
     ctx = {
         "function": function,
-        "estimate_fee": max(set(gas_list), key=gas_list.count),
+        "estimate_fee": max(set(gas_list), key=gas_list.count) if gas_list else None,
         "fees": data
     }
     return JSONResponse(ctx)
