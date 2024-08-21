@@ -259,11 +259,11 @@ class DatabaseValidator(DatabaseBase):
 
     async def get_validator_bonds(self, address: str) -> list[dict[str, Any]]:
         try:
-            stakers = await DatabaseMapping.get_bonded_mapping(self)
+            stakers = await cast(DatabaseMapping, self).get_bonded_mapping()
             all_delegators: list[dict[str, Any]] = []
             for delegator, (validator, stake) in stakers.items():
                 if str(validator) == address:
-                    stake_reward = await DatabaseAddress.get_address_stake_reward(self, address)
+                    stake_reward = await cast(DatabaseAddress, self).get_address_stake_reward(address)
                     all_delegators.append({
                         "address": str(delegator),
                         "stake": int(stake),

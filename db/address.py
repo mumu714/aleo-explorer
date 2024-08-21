@@ -581,7 +581,7 @@ LIMIT 10
         async with self.pool.connection() as conn:
             async with conn.cursor() as cur:
                 try:
-                    last_height = await DatabaseBlock.get_latest_height(self)
+                    last_height = await cast(DatabaseBlock, self).get_latest_height()
                     if last_height is None:
                         raise NotImplementedError
                     height = 0
