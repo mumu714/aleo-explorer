@@ -13,3 +13,4 @@ types-redis~=4.6.0
 simplejson~=3.19.2
 tornado~=6.3.3
 apscheduler~=3.10.4
+aliyun-python-sdk-core~=2.15.1
