@@ -54,7 +54,6 @@ class DatabaseInsert(DatabaseBase):
             "credits.aleo:committee",
             "address_stake_reward",
             "address_puzzle_reward",
-            "address_incentive_puzzle_reward",
             "address_delegate_reward",
             "address_transfer_in",
             "address_transfer_out",
@@ -1804,9 +1803,9 @@ class DatabaseInsert(DatabaseBase):
                                 "WHERE height >= %s AND height < %s",
                                 (last_epoch_start_height, cur_epoch * 360)
                             )
-                            validators = await cur.fetchall()
+                            validators_list = await cur.fetchall()
                             validators_last_epoch_apr: dict[str, Any] = {}
-                            for validator in validators:
+                            for validator in validators_list:
                                 await cur.execute(
                                     "SELECT height, timestamp, committee_stake, stake_reward, delegate_reward "
                                     "FROM address_stake_reward WHERE address = %s AND height >= %s AND height < %s "
