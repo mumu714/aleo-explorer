@@ -1875,7 +1875,7 @@ class DatabaseInsert(DatabaseBase):
 
     async def save_hashrate(self):
         now = int(time.time())
-        hashrate = await DatabaseAddress.get_network_speed(self, 900)
+        hashrate = await cast(DatabaseAddress, self).get_network_speed(900)
         async with self.pool.connection() as conn:
             async with conn.cursor() as cur:
                 try:
@@ -1892,7 +1892,7 @@ class DatabaseInsert(DatabaseBase):
         async with self.pool.connection() as conn:
             async with conn.cursor() as cur:
                 try:
-                    hashrate = await DatabaseAddress.get_network_epoch_speed(self, height, interval)
+                    hashrate = await cast(DatabaseAddress, self).get_network_epoch_speed(height, interval)
                     await cur.execute(
                         "INSERT INTO epoch_hashrate (height, timestamp, hashrate) "
                         "VALUES (%s, %s, %s) ",
@@ -1904,7 +1904,7 @@ class DatabaseInsert(DatabaseBase):
 
     async def save_address_15min_hashrate(self, address: str):
         now = int(time.time())
-        address_hashrate = await DatabaseAddress.get_address_15min_speed(self, address)
+        address_hashrate = await cast(DatabaseAddress, self).get_address_15min_speed(address)
         async with self.pool.connection() as conn:
             async with conn.cursor() as cur:
                 try:
@@ -2041,7 +2041,7 @@ class DatabaseInsert(DatabaseBase):
                     all_blocks = await cur.fetchall()
                     puzzle_rewards = sum(block["coinbase_reward"] * 2 // 3 for block in all_blocks)
                     block_reward = sum(block["block_reward"] for block in all_blocks)
-                    hashrate_24h = await DatabaseAddress.get_network_speed(self, 86400)
+                    hashrate_24h = await cast(DatabaseAddress, self).get_network_speed(86400)
                     puzzle_rewards_1M = (float(puzzle_rewards) / float(hashrate_24h)) * 1_000_000 if hashrate_24h else 0
                     await self.redis.set("24H_reward:puzzle", int(puzzle_rewards))
                     await self.redis.set("24H_reward:block", int(block_reward))
@@ -2054,7 +2054,7 @@ class DatabaseInsert(DatabaseBase):
         async with self.pool.connection() as conn:
             async with conn.cursor() as cur:
                 try:
-                    last_height = await DatabaseBlock.get_latest_height(self)
+                    last_height = await cast(DatabaseBlock, self).get_latest_height()
                     if last_height is None:
                         raise NotImplementedError
                     height = 360
