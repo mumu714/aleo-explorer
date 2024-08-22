@@ -284,10 +284,9 @@ class DatabaseValidator(DatabaseBase):
                     if row is None:
                         return validator
                     address_bond: dict[str, Any] = {}
-                    for content in row["content"].values():
-                        key = Plaintext.load(BytesIO(bytes.fromhex(content["key"])))
+                    for key, value in row["content"].items():
                         if str(key) == address:
-                            value = Value.load(BytesIO(bytes.fromhex(content["value"])))
+                            value = Value.load(BytesIO(bytes.fromhex(value)))
                             if not isinstance(value, PlaintextValue):
                                 raise RuntimeError("invalid bonded value")
                             plaintext = value.plaintext
