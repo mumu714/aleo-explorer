@@ -47,7 +47,7 @@ class DatabaseInsert(DatabaseBase):
 
     def __init__(self, *args, **kwargs): # type: ignore
         super().__init__(*args, **kwargs)
-        self.redis_last_history_time = time.monotonic() - 5400
+        self.redis_last_history_time = time.monotonic() - 21600
         self.redis_keys = [
             "credits.aleo:bonded",
             "credits.aleo:delegated",
@@ -1349,7 +1349,7 @@ class DatabaseInsert(DatabaseBase):
         if height != 0:
             now = time.monotonic()
             history = False
-            if self.redis_last_history_time + 10800 < now:
+            if self.redis_last_history_time + 43200 < now:
                 self.redis_last_history_time = now
                 history = True
             for key in keys:
