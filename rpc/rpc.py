@@ -102,6 +102,7 @@ routes = [
     Route("/search", search_route),
     Route("/blocks", blocks_route),
     Route("/hashrate/{type}", hashrate_route),
+    Route("/epoch", epoch_route),
     Route("/epoch_hashrate/{type}", epoch_hashrate_route),
     Route("/epoch_hash", epoch_hash_route),
     Route("/coinbase", coinbase_route),

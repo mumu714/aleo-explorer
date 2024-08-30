@@ -1204,6 +1204,32 @@ class DatabaseBlock(DatabaseBase):
                     await self.message_callback(ExplorerMessage(ExplorerMessage.Type.DatabaseError, e))
                     raise
 
+    async def get_block_timestamp(self, height: int) -> int:
+        async with self.pool.connection() as conn:
+            async with conn.cursor() as cur:
+                try:
+                    await cur.execute("SELECT timestamp FROM block WHERE height = %s", (height,))
+                    result = await cur.fetchone()
+                    if result is None:
+                        raise RuntimeError("no blocks in database")
+                    return result['timestamp']
+                except Exception as e:
+                    await self.message_callback(ExplorerMessage(ExplorerMessage.Type.DatabaseError, e))
+                    raise
+
+    async def get_block_previous_hash(self, height: int) -> str:
+        async with self.pool.connection() as conn:
+            async with conn.cursor() as cur:
+                try:
+                    await cur.execute("SELECT previous_hash FROM block WHERE height = %s", (height,))
+                    result = await cur.fetchone()
+                    if result is None:
+                        raise RuntimeError("no blocks in database")
+                    return result['previous_hash']
+                except Exception as e:
+                    await self.message_callback(ExplorerMessage(ExplorerMessage.Type.DatabaseError, e))
+                    raise
+
 
     async def get_interval_proof_target(self, interval: int) -> list[Any]:
         async with self.pool.connection() as conn:
@@ -1212,12 +1238,20 @@ class DatabaseBlock(DatabaseBase):
                     now = int(time.time())
                     if interval == 0:
                         await cur.execute(
-                            "SELECT height, timestamp, proof_target FROM block ORDER BY height "
+                            "WITH height_info AS "
+                                "(SELECT MAX(height) AS max_height, "
+                                "CASE WHEN MAX(height) / 10000 = 0 THEN 1 ELSE MAX(height) / 10000 END AS interval FROM block) "
+                            "SELECT height, timestamp, proof_target FROM block, height_info "
+                            "WHERE (height % interval) = 0 "
+                            "ORDER BY height " 
                         )
                     else:
                         await cur.execute(
-                            "SELECT height, timestamp, proof_target FROM block "
-                            "WHERE timestamp > %s ORDER BY height",(now - interval,)
+                            "WITH block_rows AS "
+                                "(SELECT *, ROW_NUMBER() OVER (ORDER BY height) AS row_num "
+                                "FROM block WHERE timestamp > %s) "
+                            "SELECT height, timestamp, proof_target FROM block_rows "
+                            "WHERE row_num %% 100 = 0 ORDER BY height",(now - interval,)
                         )
                     result = await cur.fetchall()
                     return result

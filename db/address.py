@@ -49,11 +49,11 @@ class DatabaseAddress(DatabaseBase):
             async with conn.cursor() as cur:
                 try:
                     await cur.execute(
-                        "SELECT COUNT(*) FROM solution WHERE address = %s", (address,)
+                        "SELECT solution_count FROM address WHERE address = %s", (address,)
                     )
                     if (res := await cur.fetchone()) is None:
                         return 0
-                    return res["count"]
+                    return res["solution_count"]
                 except Exception as e:
                     await self.message_callback(ExplorerMessage(ExplorerMessage.Type.DatabaseError, e))
                     raise
@@ -63,7 +63,7 @@ class DatabaseAddress(DatabaseBase):
             async with conn.cursor() as cur:
                 try:
                     await cur.execute(
-                        "SELECT b.height, b.timestamp, s.counter, s.target, s.solution_id, reward, ps.target_sum, s.commitment "
+                        "SELECT b.height, b.timestamp, s.counter, s.target, s.solution_id, reward, ps.target_sum "
                         "FROM solution s "
                         "JOIN puzzle_solution ps ON ps.id = s.puzzle_solution_id "
                         "JOIN block b ON b.id = ps.block_id "
@@ -462,34 +462,43 @@ LIMIT 10
                     await self.message_callback(ExplorerMessage(ExplorerMessage.Type.DatabaseError, e))
                     raise
 
-    async def get_address_info(self, address: str) -> Optional[dict[str, Any]]:
+    async def get_address_info(self, address: str) -> dict[str, Any]:
+        async with self.pool.connection() as conn:
+            async with conn.cursor() as cur:
+                try:
+                    functions: list[str] = []
+                    transition_count = 0
+                    await cur.execute(
+                        "SELECT array_agg(function_name) AS function_name_list, "
+                        "SUM(transition_count) AS total_transition_count "
+                        "FROM address_transition_summary WHERE address = %s", (address,)
+                    )
+                    row = await cur.fetchone()
+                    if row is not None:
+                        if row["function_name_list"]:
+                            functions = row["function_name_list"]
+                        if row["total_transition_count"]:
+                            transition_count = row["total_transition_count"]
+                    return {
+                        'transactions_count': transition_count,
+                        'functions': functions,
+                    }
+                except Exception as e:
+                    await self.message_callback(ExplorerMessage(ExplorerMessage.Type.DatabaseError, e))
+                    raise
+
+    async def get_address_transaction_count(self, address: str) -> int:
         async with self.pool.connection() as conn:
             async with conn.cursor() as cur:
                 try:
                     await cur.execute(
-                        "SELECT * FROM address at WHERE at.address = %s", (address,)
+                        "SELECT SUM(transition_count) AS total_transition_count "
+                        "FROM address_transition_summary WHERE address = %s", (address,)
                     )
                     row = await cur.fetchone()
                     if row is None:
-                        return None
-                    await cur.execute(
-                        "SELECT COUNT(DISTINCT at.transition_id) FROM address_transition at "
-                        "WHERE at.address = %s",(address,)
-                    )
-                    res = await cur.fetchone()
-                    count = 0
-                    if res is not None:
-                        count = res["count"]
-                    functions = row['functions']
-                    if functions is not None:
-                        functions = list(set([i.split("/")[1] for i in row['functions']]))
-                    return {
-                        'execution_transactions': row['execution_ts_num'],
-                        'fee_transactions': row['fee_ts_num'],
-                        'transactions_count': count,
-                        'functions': functions,
-                        'favorites': row['favorite']
-                    }
+                        return 0
+                    return row["total_transition_count"]
                 except Exception as e:
                     await self.message_callback(ExplorerMessage(ExplorerMessage.Type.DatabaseError, e))
                     raise
@@ -588,7 +597,7 @@ LIMIT 10
                     blocks: list[Any] = []
                     while height < last_height:
                         await cur.execute(
-                            "SELECT height, block_hash FROM block WHERE height = %s",(height,)
+                            "SELECT height, previous_hash FROM block WHERE height = %s",(height,)
                         )
                         res = await cur.fetchone()
                         if res is not None:
@@ -739,6 +748,31 @@ LIMIT 10
                     if (res := await cur.fetchone()) is None:
                         return None
                     return res
+                except Exception as e:
+                    await self.message_callback(ExplorerMessage(ExplorerMessage.Type.DatabaseError, e))
+                    raise
+
+    async def get_cur_epoch(self, cur_epoch: int) -> dict[str, Any]:
+        async with self.pool.connection() as conn:
+            async with conn.cursor() as cur:
+                try:
+                    await cur.execute("SELECT timestamp, previous_hash FROM block WHERE height = %s",(cur_epoch*360,))
+                    res = await cur.fetchone()
+                    if res is None:
+                        raise NotImplementedError
+                    return res
+                except Exception as e:
+                    await self.message_callback(ExplorerMessage(ExplorerMessage.Type.DatabaseError, e))
+                    raise
+
+    async def get_epoch(self, start: int, end: int) -> list[dict[str, Any]]:
+        async with self.pool.connection() as conn:
+            async with conn.cursor() as cur:
+                try:
+                    await cur.execute(
+                        "SELECT * FROM epoch ORDER BY epoch_num DESC LIMIT %s OFFSET %s",(end - start, start)
+                    )
+                    return await cur.fetchall()
                 except Exception as e:
                     await self.message_callback(ExplorerMessage(ExplorerMessage.Type.DatabaseError, e))
                     raise
