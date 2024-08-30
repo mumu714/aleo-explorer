@@ -81,8 +81,8 @@ class DatabaseTransaction(DatabaseBase):
             async with conn.cursor() as cur:
                 try:
                     await cur.execute(
-                        "SELECT COUNT(DISTINCT at.transition_id) FROM address_transition at "
-                        "WHERE at.address = %s AND at.function_name = %s ",(address,function,)
+                        "SELECT SUM(transition_count) AS count FROM address_transition_summary "
+                        "WHERE address = %s AND function_name = %s ",(address,function,)
                     )
                     if (res := await cur.fetchone()) is None:
                         return 0
@@ -96,8 +96,8 @@ class DatabaseTransaction(DatabaseBase):
             async with conn.cursor() as cur:
                 try:
                     await cur.execute(
-                        "SELECT COUNT(DISTINCT at.transition_id) FROM address_transition at "
-                        "WHERE at.address = %s AND at.program_id = %s AND at.function_name = %s ",(address,program_id, function,)
+                        "SELECT SUM(transition_count) AS count FROM address_transition_summary "
+                        "WHERE address = %s AND program_id = %s AND function_name = %s ",(address,program_id, function,)
                     )
                     if (res := await cur.fetchone()) is None:
                         return 0
@@ -111,9 +111,9 @@ class DatabaseTransaction(DatabaseBase):
             async with conn.cursor() as cur:
                 try:
                     await cur.execute(
-                        "SELECT COUNT(DISTINCT at.transition_id) FROM address_transition at "
-                        "WHERE at.address = %s AND at.function_name = ANY(%s::text[])",
-                        (address,["bond_public", "unbond_public", "claim_unbond_public"],)
+                        "SELECT SUM(transition_count) AS count FROM address_transition_summary "
+                        "WHERE address = %s AND function_name = ANY(%s::text[])",
+                        (address, ["bond_public", "unbond_public", "claim_unbond_public"],)
                     )
                     if (res := await cur.fetchone()) is None:
                         return 0

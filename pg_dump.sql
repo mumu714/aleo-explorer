@@ -278,6 +278,86 @@ begin
 end;
 $$;
 
+--
+-- Name: update_address_transition_summary(); Type: FUNCTION; Schema: explorer; Owner: -
+--
+
+CREATE FUNCTION explorer.update_address_transition_summary()
+RETURNS TRIGGER AS $$
+BEGIN
+    RAISE NOTICE 'Trigger executed for transition_id: %, %s', NEW.transition_id, TG_OP;
+    IF TG_OP = 'INSERT' THEN
+        IF NOT EXISTS (
+            SELECT 1 
+            FROM explorer.address_transition 
+            WHERE transition_id = NEW.transition_id
+            AND address = NEW.address 
+            AND program_id = NEW.program_id
+            AND function_name = NEW.function_name
+        ) THEN
+            UPDATE explorer.address_transition_summary
+            SET transition_count = transition_count + 1
+            WHERE address = NEW.address 
+            AND program_id = NEW.program_id
+            AND function_name = NEW.function_name;
+
+            IF NOT FOUND THEN
+                INSERT INTO explorer.address_transition_summary (address, program_id, function_name, transition_count)
+                VALUES (NEW.address, NEW.program_id, NEW.function_name, 1);
+            END IF;
+        END IF;
+    ELSIF TG_OP = 'DELETE' THEN
+        UPDATE explorer.address_transition_summary
+        SET transition_count = transition_count - 1
+        WHERE address = OLD.address
+          AND program_id = OLD.program_id
+          AND function_name = OLD.function_name;
+
+        DELETE FROM explorer.address_transition_summary
+        WHERE address = OLD.address
+          AND program_id = OLD.program_id
+          AND function_name = OLD.function_name
+          AND transition_count = 0;
+    END IF;
+
+    RETURN NEW;
+END;
+$$ LANGUAGE plpgsql;
+
+
+--
+-- Name: update_address_solution_count(); Type: FUNCTION; Schema: explorer; Owner: -
+--
+
+CREATE FUNCTION explorer.update_address_solution_count()
+RETURNS TRIGGER AS $$
+BEGIN
+    RAISE NOTICE 'Trigger executed for solution_id: %, %s', NEW.solution_id, TG_OP;
+    IF TG_OP = 'INSERT' THEN
+        IF NOT EXISTS (
+            SELECT 1 
+            FROM explorer.solution 
+            WHERE solution_id = NEW.solution_id
+            AND address = NEW.address 
+        ) THEN
+            UPDATE explorer.address
+            SET solution_count = solution_count + 1
+            WHERE address = NEW.address; 
+
+            IF NOT FOUND THEN
+                INSERT INTO explorer.address (address, solution_count) VALUES (NEW.address, 1);
+            END IF;
+        END IF;
+    ELSIF TG_OP = 'DELETE' THEN
+        UPDATE explorer.address
+        SET solution_count = solution_count - 1
+        WHERE address = OLD.address;
+    END IF;
+
+    RETURN NEW;
+END;
+$$ LANGUAGE plpgsql;
+
 
 SET default_tablespace = '';
 
@@ -320,6 +400,19 @@ CREATE TABLE explorer.coinbase (
     reward numeric(40,0) NOT NULL
 );
 
+
+--
+-- Name: epoch; Type: TABLE; Schema: explorer; Owner: -
+--
+
+CREATE TABLE explorer.epoch (
+    epoch_num bigint NOT NULL,
+    "start_timestamp" bigint NOT NULL,
+    "end_timestamp" bigint NOT NULL,
+    epoch_hash text NOT NULL
+);
+
+
 --
 -- Name: address_15min_hashrate; Type: TABLE; Schema: explorer; Owner: -
 --
@@ -341,16 +434,37 @@ CREATE TABLE explorer.address_transition (
     function_name text NOT NULL
 );
 
+
+--
+-- Name: address_transition_summary; Type: TABLE; Schema: explorer; Owner: -
+--
+
+CREATE TABLE explorer.address_transition_summary (
+    address text NOT NULL,
+    program_id text NOT NULL,
+    function_name text NOT NULL,
+    transition_count INT
+);
+
+CREATE TRIGGER address_transition_before_insert_trigger
+BEFORE INSERT ON explorer.address_transition
+FOR EACH ROW
+EXECUTE FUNCTION explorer.update_address_transition_summary();
+
+CREATE TRIGGER address_transition_after_delete_trigger
+AFTER DELETE ON explorer.address_transition
+FOR EACH ROW
+EXECUTE FUNCTION explorer.update_address_transition_summary();
+
+
 --
 -- Name: address; Type: TABLE; Schema: explorer; Owner: -
 --
 
 CREATE TABLE explorer.address (
     address text NOT NULL,
+    solution_count bigint DEFAULT 0 NOT NULL,
     public_credits numeric(40,0) DEFAULT 0 NOT NULL,
-    functions text[],
-    execution_ts_num integer DEFAULT 0 NOT NULL,
-    fee_ts_num integer DEFAULT 0 NOT NULL,
     favorite jsonb DEFAULT '{}'::jsonb NOT NULL
 );
 
@@ -1459,6 +1573,17 @@ CREATE SEQUENCE explorer.solution_id_seq
 --
 
 ALTER SEQUENCE explorer.solution_id_seq OWNED BY explorer.solution.id;
+
+
+CREATE TRIGGER address_solution_before_insert_trigger
+BEFORE INSERT ON explorer.solution
+FOR EACH ROW
+EXECUTE FUNCTION explorer.update_address_solution_count();
+
+CREATE TRIGGER address_solution_after_delete_trigger
+AFTER DELETE ON explorer.solution
+FOR EACH ROW
+EXECUTE FUNCTION explorer.update_address_solution_count();
 
 
 --
@@ -2722,12 +2847,30 @@ ALTER TABLE ONLY explorer.epoch_hashrate
 ALTER TABLE ONLY explorer.coinbase
     ADD CONSTRAINT coinbase_pk PRIMARY KEY (height);
 
+
+--
+-- Name: epoch epoch_pk; Type: CONSTRAINT; Schema: explorer; Owner: -
+--
+
+ALTER TABLE ONLY explorer.epoch
+    ADD CONSTRAINT epoch_pk PRIMARY KEY (epoch_num);
+
+
 --
 -- Name: address address_pk; Type: CONSTRAINT; Schema: explorer; Owner: -
 --
 
 ALTER TABLE ONLY explorer.address
     ADD CONSTRAINT address_pk PRIMARY KEY (address);
+
+
+--
+-- Name: address_transition_summary address_transition_summary_pk; Type: CONSTRAINT; Schema: explorer; Owner: -
+--
+
+ALTER TABLE ONLY explorer.address_transition_summary
+    ADD CONSTRAINT address_transition_summary_pk PRIMARY KEY (address, program_id, function_name);
+
 
 --
 -- Name: address_15min_hashrate address_15min_hashrate_pk; Type: CONSTRAINT; Schema: explorer; Owner: -
@@ -3001,6 +3144,51 @@ ALTER TABLE ONLY explorer.transition
 
 
 --
+-- Name: hashrate_timestamp_uindex; Type: INDEX; Schema: explorer; Owner: -
+--
+
+CREATE UNIQUE INDEX hashrate_timestamp_uindex ON explorer.hashrate USING btree ("timestamp");
+
+
+--
+-- Name: epoch_hashrate_height_uindex; Type: INDEX; Schema: explorer; Owner: -
+--
+
+CREATE UNIQUE INDEX epoch_hashrate_height_uindex ON explorer.epoch_hashrate USING btree (height);
+
+
+--
+-- Name: epoch_hashrate_timestamp_index; Type: INDEX; Schema: explorer; Owner: -
+--
+
+
+CREATE INDEX epoch_hashrate_timestamp_index ON explorer.epoch_hashrate USING btree ("timestamp");
+
+
+--
+-- Name: coinbase_height_uindex; Type: INDEX; Schema: explorer; Owner: -
+--
+
+CREATE UNIQUE INDEX coinbase_height_uindex ON explorer.coinbase USING btree (height);
+
+
+--
+-- Name: coinbase_timestamp_index; Type: INDEX; Schema: explorer; Owner: -
+--
+
+
+CREATE INDEX coinbase_timestamp_index ON explorer.coinbase USING btree ("timestamp");
+
+
+--
+-- Name: epoch_epoch_num_index; Type: INDEX; Schema: explorer; Owner: -
+--
+
+
+CREATE UNIQUE INDEX epoch_epoch_num_index ON explorer.epoch USING btree (epoch_num);
+
+
+--
 -- Name: address_address_index; Type: INDEX; Schema: explorer; Owner: -
 --
 
@@ -3061,6 +3249,41 @@ CREATE INDEX address_transition_program_id_function_name_index ON explorer.addre
 --
 
 CREATE INDEX address_transition_transition_id_address_index ON explorer.address_transition USING btree (address, transition_id);
+
+
+--
+-- Name: address_transition_summary_address_index; Type: INDEX; Schema: explorer; Owner: -
+--
+
+CREATE INDEX address_transition_summary_address_index ON explorer.address_transition_summary USING btree (address text_pattern_ops);
+
+
+--
+-- Name: address_transition_summary_function_name_index; Type: INDEX; Schema: explorer; Owner: -
+--
+
+CREATE INDEX address_transition_summary_function_name_index ON explorer.address_transition_summary USING btree (function_name);
+
+
+--
+-- Name: address_transition_summary_program_id_index; Type: INDEX; Schema: explorer; Owner: -
+--
+
+CREATE INDEX address_transition_summary_program_id_index ON explorer.address_transition_summary USING btree (program_id);
+
+
+--
+-- Name: address_transition_summary_function_name_address_index; Type: INDEX; Schema: explorer; Owner: -
+--
+
+CREATE INDEX address_transition_summary_function_name_address_index ON explorer.address_transition_summary USING btree (address, function_name);
+
+
+--
+-- Name: address_transition_summary_program_id_function_name_index; Type: INDEX; Schema: explorer; Owner: -
+--
+
+CREATE INDEX address_transition_summary_program_id_function_name_index ON explorer.address_transition_summary USING btree (program_id, function_name);
 
 
 -- Name: address_stake_reward_address_index; Type: INDEX; Schema: explorer; Owner: -

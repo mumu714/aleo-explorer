@@ -61,63 +61,12 @@ class DatabaseInsert(DatabaseBase):
         ]
 
     @staticmethod
-    async def _insert_address_info(conn: psycopg.AsyncConnection[dict[str, Any]], address_list: list[str],
-                                 exe_tx_db_id: Optional[int], fee_db_id: Optional[int], function_name: str):
-        async with conn.cursor() as cur:
-            for address in list(set(address_list)):
-                execution_ts_num = 0
-                fee_ts_num = 0
-                if exe_tx_db_id: execution_ts_num = 1
-                if fee_db_id: fee_ts_num = 1
-                await cur.execute(
-                    "INSERT INTO address (address, execution_ts_num, fee_ts_num) VALUES (%s, %s, %s)"
-                    "ON CONFLICT (address) DO UPDATE SET execution_ts_num = address.execution_ts_num + %s, "
-                    "fee_ts_num = address.fee_ts_num + %s RETURNING functions, execution_ts_num, fee_ts_num",
-                    (address, execution_ts_num, fee_ts_num, execution_ts_num, fee_ts_num)
-                )
-                if (res := await cur.fetchone()) is None:
-                    raise RuntimeError("failed to insert row into database")
-                functions = res["functions"]
-                if functions == None:
-                    functions = [function_name]
-                    await cur.execute(
-                        "INSERT INTO address (address, functions) VALUES (%s, %s) "
-                        "ON CONFLICT (address) DO UPDATE SET functions = %s",
-                        (address, functions, functions)
-                    )
-                if function_name not in functions:
-                    functions.append(function_name)
-                    await cur.execute(
-                        "INSERT INTO address (address, functions) VALUES (%s, %s) "
-                        "ON CONFLICT (address) DO UPDATE SET functions = %s",
-                        (address, functions, functions)
-                    )
-
-    @staticmethod
     async def _cleanup_unconfirmed_address_transition(conn: psycopg.AsyncConnection[dict[str, Any]], id: Int):
         async with conn.cursor() as cur:
             await cur.execute(
                 "SELECT id FROM transition WHERE transaction_id = %s",(id,)
             )
             for row in await cur.fetchall():
-                await cur.execute(
-                    "SELECT address, function_name FROM address_transition WHERE transition_id = %s",(row["id"],)
-                )
-                for row_add in await cur.fetchall():
-                    if "fee" in row_add["function_name"]:
-                        await cur.execute(
-                            "UPDATE address SET fee_ts_num = fee_ts_num - %s WHERE address = %s "
-                            "RETURNING functions, fee_ts_num",
-                            (1, row_add["address"])
-                        )
-                    else:
-                        await cur.execute(
-                            "UPDATE address SET execution_ts_num = execution_ts_num - %s WHERE address = %s "
-                            "RETURNING functions, execution_ts_num",
-                            (1, row_add["address"])
-                        )
-                    if await cur.fetchone() is None:
-                        raise RuntimeError("failed to update row into database")
                 await cur.execute(
                     "DELETE FROM address_transition WHERE transition_id = %s",(row["id"],)
                 )
@@ -449,8 +398,6 @@ class DatabaseInsert(DatabaseBase):
                 else:
                     raise NotImplementedError
 
-            await DatabaseInsert._insert_address_info(conn, address_list, exe_tx_db_id, fee_db_id, f"{transition.program_id}/{transition.function_name}")
-
             await cur.execute(
                 "SELECT id FROM program WHERE program_id = %s", (str(transition.program_id),)
             )
@@ -597,17 +544,17 @@ class DatabaseInsert(DatabaseBase):
                                     res.append(row)
                     else:
                         res = []
-                    # for row in res:
-                    #     print("removing strange unconfirmed transaction:", row["transaction_id"])
-                    #     await DatabaseInsert._cleanup_unconfirmed_address_transition(conn, row["id"])
-                    #     await cur.execute(
-                    #         "DELETE FROM transition WHERE transaction_id = %s",
-                    #         (row["id"],)
-                    #     )
-                    #     await cur.execute(
-                    #         "DELETE FROM transaction WHERE id = %s",
-                    #         (row["id"],)
-                    #     )
+                    for row in res:
+                        print("removing strange unconfirmed transaction:", row["transaction_id"])
+                        await DatabaseInsert._cleanup_unconfirmed_address_transition(conn, row["id"])
+                        await cur.execute(
+                            "DELETE FROM transition WHERE transaction_id = %s",
+                            (row["id"],)
+                        )
+                        await cur.execute(
+                            "DELETE FROM transaction WHERE id = %s",
+                            (row["id"],)
+                        )
 
                 if isinstance(transaction, FeeTransaction): # check probable rejected unconfirmed transaction
                     if confirmed_transaction is None:
@@ -1108,19 +1055,6 @@ class DatabaseInsert(DatabaseBase):
             )
         return stakers
     
-    async def get_block_timestamp(self, height: int) -> int:
-        async with self.pool.connection() as conn:
-            async with conn.cursor() as cur:
-                try:
-                    await cur.execute("SELECT timestamp FROM block WHERE height = %s", (height,))
-                    result = await cur.fetchone()
-                    if result is None:
-                        raise RuntimeError("no blocks in database")
-                    return result['timestamp']
-                except Exception as e:
-                    await self.message_callback(ExplorerMessage(ExplorerMessage.Type.DatabaseError, e))
-                    raise
-
 
     @staticmethod
     @profile
@@ -1795,7 +1729,15 @@ class DatabaseInsert(DatabaseBase):
                             cur_block_timestamp = block.header.metadata.timestamp
                             cur_epoch = block.height // 360
                             last_epoch_start_height = (cur_epoch - 1) * 360
-                            last_epoch_start_timestamp = await self.get_block_timestamp(last_epoch_start_height)
+                            last_epoch_start_timestamp = await cast(DatabaseBlock, self).get_block_timestamp(last_epoch_start_height)
+                            last_epoch_end_height = block.height - 1
+                            last_epoch_end_timestamp = await cast(DatabaseBlock, self).get_block_timestamp(last_epoch_end_height)
+                            last_epoch_hash = await cast(DatabaseBlock, self).get_block_previous_hash(last_epoch_start_height)
+                            await cur.execute(
+                                "INSERT INTO epoch (epoch_num, start_timestamp, end_timestamp, epoch_hash) "
+                                "VALUES (%s, %s, %s, %s) ",
+                                (cur_epoch-1, last_epoch_start_timestamp, last_epoch_end_timestamp, last_epoch_hash)
+                            )
                             last_epoch_time = int(cur_block_timestamp - last_epoch_start_timestamp)
                             await self.save_epoch_hashrate(last_epoch_start_height, last_epoch_time, cur_block_timestamp)
                             await cur.execute(

@@ -374,7 +374,6 @@ async def address_route(request: Request):
         and transfer_in is None
         and transfer_out is None
         and total_fee is None
-        and address_info is None
         and program_name is None
     ):
         return JSONResponse({})
@@ -546,21 +545,12 @@ async def address_route(request: Request):
         address_type = "Prover"
     elif program_count > 0:
         address_type = "Developer"
-    if address_info is None:
-        functions: list[str] = []
-        favorites: dict[str, Any] = {}
-        address_info = {
-            "execution_transactions": 0,
-            "fee_transactions": 0,
-            "transactions_count": 0,
-            "functions": functions,
-            "favorites": favorites
-        }
 
     network_1hour_speed = await db.get_network_speed(3600)
     network_1hour_reward = await db.get_network_reward(3600)
     address_1hour_reward = await db.get_address_reward(address, 3600)
     address_1hour_speed = await db.get_address_interval_speed(address, 3600)
+    favorites = await db.get_favorite_by_address(address)
     uiaddress = await UIAddress(address).resolve(db)
     ctx = {
         "address": uiaddress.__dict__,
@@ -573,11 +563,9 @@ async def address_route(request: Request):
         "7d_rewards": int(reward_7d),
         "total_solutions": solution_count,
         "total_programs": program_count,
-        "total_execution_transactions": address_info["execution_transactions"],
-        "total_fee_transactions": address_info["fee_transactions"],
         "transactions_count": address_info["transactions_count"],
         "function_names": address_info["functions"],
-        "favorites": address_info["favorites"],
+        "favorites": favorites,
         "speed": float(speed),
         "timespan": interval_text[interval],
         "public_credits": public_balance,
@@ -667,10 +655,7 @@ async def address_transaction_route(request: Request):
             offset = int(offset)
     except:
         raise HTTPException(status_code=400, detail="Invalid page")
-    address_info = await db.get_address_info(address)
-    if address_info is None:
-        raise HTTPException(status_code=400, detail="Invalid page")
-    address_transaction_count = address_info["transactions_count"]
+    address_transaction_count = await db.get_address_transaction_count(address)
     if offset < 0 or offset > address_transaction_count:
         raise HTTPException(status_code=400, detail="Invalid page")
     transitions = await db.get_transition_by_address(address, offset, offset + limit)
@@ -718,9 +703,7 @@ async def address_transaction_route(request: Request):
     ctx = {
         "address": address,
         "address_trunc": address[:14] + "..." + address[-6:],
-        "total_execution_transactions": address_info["execution_transactions"],
-        "total_fee_transactions": address_info["fee_transactions"],
-        "transactions_count": address_info["transactions_count"],
+        "transactions_count": address_transaction_count,
         "transactions": data,
     }
     return JSONResponse(ctx)

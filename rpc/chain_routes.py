@@ -1033,7 +1033,6 @@ async def epoch_hashrate_route(request: Request):
 async def epoch_hash_route(request: Request):
     db: Database = request.app.state.db
     epoch_hashrate_data = await db.get_epoch_hash()
-    print(epoch_hashrate_data)
     ctx = {
         "epoch_hash": epoch_hashrate_data,
     }
@@ -1115,4 +1114,38 @@ async def unconfirmed_transactions_route(request: Request):
         "transactions": transactions,
         "totalCount": total_transactions,
     }    
+    return JSONResponse(ctx)
+
+
+async def epoch_route(request: Request):
+    db: Database = request.app.state.db
+    try:
+        limit = request.query_params.get("limit")
+        offset = request.query_params.get("offset")
+        if limit is None:
+            limit = 10
+        else:
+            limit = int(limit)
+        if offset is None:
+            offset = 0
+        else:
+            offset = int(offset)
+    except:
+        raise HTTPException(status_code=400, detail="Invalid page")
+    last_height = await db.get_latest_height()
+    if last_height is None:
+        raise NotImplementedError
+    cur_epoch_num = last_height // 360
+    cur_epoch =  await db.get_cur_epoch(cur_epoch_num)
+    if offset > cur_epoch_num:
+        raise HTTPException(status_code=400, detail="Invalid page")
+    start = offset
+    epoch_data = await db.get_epoch(start, start + limit)
+    ctx = {
+        "last_height": last_height,
+        "epoch_num": cur_epoch_num,
+        "start_timestamp": cur_epoch["timestamp"],
+        "epoch_hash": cur_epoch["previous_hash"],
+        "epoch_data": epoch_data,
+    }
     return JSONResponse(ctx)
