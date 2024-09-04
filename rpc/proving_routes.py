@@ -1197,39 +1197,6 @@ async def validator_dpr_route(request: Request):
     return JSONResponse(ctx)
 
 
-async def biggest_miners_route(request: Request):
-    db: Database = request.app.state.db
-    try:
-        limit = request.query_params.get("limit")
-        offset = request.query_params.get("offset")
-        if limit is None:
-            limit = 4
-        else:
-            limit = int(limit)
-        if offset is None:
-            offset = 0
-        else:
-            offset = int(offset)
-    except:
-        raise HTTPException(status_code=400, detail="Invalid page")
-    address_count, _ = await db.get_puzzle_reward_all()
-    if offset < 0 or offset > address_count:
-        raise HTTPException(status_code=400, detail="Invalid page")
-    address_hashrate = await db.get_15min_top_miner(offset, offset + limit)
-    data: list[dict[str, Any]] = []
-    for line in address_hashrate:
-        data.append({
-            "address": line["address"],
-            "timestamp": line["timestamp"],
-            "hashrate": str(line["hashrate"])
-        })
-    ctx = {
-        "address_15min_hashrate": data
-    }
-
-    return JSONResponse(ctx)
-
-
 async def address_favorite_route(request: Request):
     db: Database = request.app.state.db
     address = request.query_params.get("a")
