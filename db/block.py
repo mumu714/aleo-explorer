@@ -1240,7 +1240,7 @@ class DatabaseBlock(DatabaseBase):
                         await cur.execute(
                             "WITH height_info AS "
                                 "(SELECT MAX(height) AS max_height, "
-                                "CASE WHEN MAX(height) / 10000 = 0 THEN 1 ELSE MAX(height) / 10000 END AS interval FROM block) "
+                                "CASE WHEN MAX(height) / 5000 = 0 THEN 1 ELSE MAX(height) / 5000 END AS interval FROM block) "
                             "SELECT height, timestamp, proof_target FROM block, height_info "
                             "WHERE (height % interval) = 0 "
                             "ORDER BY height " 
@@ -1249,9 +1249,12 @@ class DatabaseBlock(DatabaseBase):
                         await cur.execute(
                             "WITH block_rows AS "
                                 "(SELECT *, ROW_NUMBER() OVER (ORDER BY height) AS row_num "
-                                "FROM block WHERE timestamp > %s) "
-                            "SELECT height, timestamp, proof_target FROM block_rows "
-                            "WHERE row_num %% 100 = 0 ORDER BY height",(now - interval,)
+                                "FROM block WHERE timestamp > %s), "
+                            "interval_params AS "
+                                "(SELECT CASE WHEN COUNT(*) / 500 = 0 THEN 1 "
+                                "ELSE COUNT(*) / 500 END AS interval FROM block_rows) "
+                            "SELECT height, timestamp, proof_target FROM block_rows CROSS JOIN interval_params "
+                            "WHERE row_num %% interval_params.interval = 0 ORDER BY height",(now - interval,)
                         )
                     result = await cur.fetchall()
                     return result
