@@ -180,7 +180,8 @@ class Explorer:
         out_of_sync = now - last_timestamp > 300
         if out_of_sync:
             rpc_root = os.environ.get("RPC_URL_ROOT", "127.0.0.1:3003")
-            node_height = requests.get(f"{rpc_root}/testnet/latest/height")
+            network = os.environ.get("NETWORK")
+            node_height = requests.get(f"{rpc_root}/{network}/latest/height")
             print(f"Curret Aleo.Info block height at {last_height}, Node height at {node_height.text}")
             message = f"Aleo.Info 后端报错信息: 当前浏览器区块落后超过5分钟,请检查. Current Aleo.Info block height at {last_height}, Node height at {node_height.text}"
             self.send_lark_message(message)
