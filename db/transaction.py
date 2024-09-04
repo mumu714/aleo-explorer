@@ -84,7 +84,8 @@ class DatabaseTransaction(DatabaseBase):
                         "SELECT SUM(transition_count) AS count FROM address_transition_summary "
                         "WHERE address = %s AND function_name = %s ",(address,function,)
                     )
-                    if (res := await cur.fetchone()) is None:
+                    res = await cur.fetchone()
+                    if res is None or res["count"] is None:
                         return 0
                     return res["count"]
                 except Exception as e:
@@ -99,7 +100,8 @@ class DatabaseTransaction(DatabaseBase):
                         "SELECT SUM(transition_count) AS count FROM address_transition_summary "
                         "WHERE address = %s AND program_id = %s AND function_name = %s ",(address,program_id, function,)
                     )
-                    if (res := await cur.fetchone()) is None:
+                    res = await cur.fetchone()
+                    if res is None or res["count"] is None:
                         return 0
                     return res["count"]
                 except Exception as e:
@@ -115,7 +117,8 @@ class DatabaseTransaction(DatabaseBase):
                         "WHERE address = %s AND function_name = ANY(%s::text[])",
                         (address, ["bond_public", "unbond_public", "claim_unbond_public"],)
                     )
-                    if (res := await cur.fetchone()) is None:
+                    res = await cur.fetchone()
+                    if res is None or res["count"] is None:
                         return 0
                     return res["count"]
                 except Exception as e:
