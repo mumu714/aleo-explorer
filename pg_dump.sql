@@ -3339,6 +3339,13 @@ CREATE INDEX block_validator_validator_index ON explorer.block_validator USING b
 
 
 --
+-- Name: block_validator_block_id_index; Type: INDEX; Schema: explorer; Owner: -
+--
+
+CREATE INDEX block_validator_block_id_index ON explorer.block_validator USING btree (block_id);
+
+
+--
 -- Name: committee_history_height_index; Type: INDEX; Schema: explorer; Owner: -
 --
 
