@@ -496,7 +496,7 @@ LIMIT 10
                         "FROM address_transition_summary WHERE address = %s", (address,)
                     )
                     row = await cur.fetchone()
-                    if row is None:
+                    if row is None or row["total_transition_count"] is None:
                         return 0
                     return row["total_transition_count"]
                 except Exception as e:
@@ -554,13 +554,28 @@ LIMIT 10
                     now = int(time.time())
                     if interval == 0:
                         await cur.execute(
-                            "SELECT * FROM hashrate ORDER BY timestamp DESC"
+                            "WITH hashrate_rows AS "
+                                "(SELECT *, ROW_NUMBER() OVER (ORDER BY timestamp) AS row_num FROM hashrate), "
+                            "interval_params AS "
+                                "(SELECT CASE WHEN COUNT(*) / 1000 = 0 THEN 1 "
+                                "ELSE COUNT(*) / 1000 END AS interval FROM hashrate_rows) "
+                            "SELECT * FROM hashrate_rows CROSS JOIN interval_params "
+                            "WHERE (row_num - 1) % interval_params.interval = 0 ORDER BY timestamp DESC"
                         )
                     else:
-                        await cur.execute(
-                            "SELECT * FROM hashrate "
-                            "WHERE timestamp > %s ORDER BY timestamp DESC",(now - interval,)
-                        )
+                        if interval == 86400:
+                            await cur.execute(
+                                "SELECT * FROM hashrate "
+                                "WHERE timestamp > %s ORDER BY timestamp DESC",(now - interval,)
+                            )
+                        else:
+                            await cur.execute(
+                                "WITH hashrate_rows AS "
+                                    "(SELECT *, ROW_NUMBER() OVER (ORDER BY timestamp) AS row_num "
+                                    "FROM hashrate WHERE timestamp > %s) "
+                                "SELECT * FROM hashrate_rows "
+                                "WHERE row_num %% 5 = 0 ORDER BY timestamp DESC",(now - interval,)
+                            )
                     return await cur.fetchall()
                 except Exception as e:
                     await self.message_callback(ExplorerMessage(ExplorerMessage.Type.DatabaseError, e))
@@ -573,7 +588,13 @@ LIMIT 10
                     now = int(time.time())
                     if interval == 0:
                         await cur.execute(
-                            "SELECT * FROM epoch_hashrate ORDER BY timestamp DESC"
+                            "WITH epoch_hashrate_rows AS "
+                                "(SELECT *, ROW_NUMBER() OVER (ORDER BY timestamp) AS row_num FROM epoch_hashrate), "
+                            "interval_params AS "
+                                "(SELECT CASE WHEN COUNT(*) / 1000 = 0 THEN 1 "
+                                "ELSE COUNT(*) / 1000 END AS interval FROM epoch_hashrate_rows) "
+                            "SELECT * FROM epoch_hashrate_rows CROSS JOIN interval_params "
+                            "WHERE (row_num - 1) % interval_params.interval = 0 ORDER BY timestamp DESC"
                         )
                     else:
                         await cur.execute(
@@ -612,10 +633,7 @@ LIMIT 10
         async with self.pool.connection() as conn:
             async with conn.cursor() as cur:
                 try:
-                    await cur.execute(
-                        "SELECT * FROM (SELECT *, ROW_NUMBER() OVER (PARTITION BY timestamp ORDER BY height DESC) AS rn "
-                        "FROM coinbase) t WHERE t.rn = 1 ORDER BY height"
-                    )
+                    await cur.execute("SELECT * FROM coinbase ORDER BY timestamp")
                     coinbase = await cur.fetchall()
                     return coinbase
                 except Exception as e:

@@ -1887,8 +1887,8 @@ class DatabaseInsert(DatabaseBase):
                 try:
                     await cur.execute(
                         "INSERT INTO coinbase (timestamp, height, reward) "
-                        "VALUES (%s, %s, %s) ON CONFLICT (height) DO NOTHING",
-                        (timestamp, height, reward)
+                        "VALUES (%s, %s, %s) ON CONFLICT (height) DO UPDATE SET reward = %s",
+                        (timestamp, height, reward, reward)
                     )
                 except Exception as e:
                     await self.message_callback(ExplorerMessage(ExplorerMessage.Type.DatabaseError, e))
@@ -1899,17 +1899,14 @@ class DatabaseInsert(DatabaseBase):
             async with conn.cursor() as cur:
                 try:
                     today_zero_time = int(time.time()) - int(time.time() - time.timezone) % 86400
-                    previous_timestamp = today_zero_time - 86400 * 30
+                    previous_timestamp = today_zero_time - 86400 * 1
                     trending_time = today_zero_time
-                    await cur.execute("SELECT * FROM block WHERE timestamp > %s ORDER BY height DESC", (previous_timestamp,))
+                    await cur.execute(
+                        "SELECT * FROM block WHERE timestamp > %s AND timestamp < %s ORDER BY height DESC", 
+                        (previous_timestamp, trending_time))
                     all_blocks = await cur.fetchall()
-                    if len(all_blocks) > 0:
-                        for _ in range(0, 30):
-                            cur_blocks = [blocks for blocks in all_blocks if
-                                            trending_time > blocks["timestamp"] >= trending_time - 86400 * 1]
-                            trending_time = trending_time - 86400 * 1
-                            coinbase_rewards = sum(block["coinbase_reward"] for block in cur_blocks)
-                            await self._save_coinbase(trending_time, cur_blocks[0]["height"], coinbase_rewards)
+                    coinbase_rewards = sum(block["coinbase_reward"] for block in all_blocks)
+                    await self._save_coinbase(trending_time, all_blocks[0]["height"], coinbase_rewards)
                 except Exception as e:
                     await self.message_callback(ExplorerMessage(ExplorerMessage.Type.DatabaseError, e))
                     raise
@@ -1937,21 +1934,37 @@ class DatabaseInsert(DatabaseBase):
                     await self.message_callback(ExplorerMessage(ExplorerMessage.Type.DatabaseError, e))
                     raise
 
-    async def update_hashrate(self):
+    async def save_24H_reward_data(self):
         async with self.pool.connection() as conn:
             async with conn.cursor() as cur:
                 try:
-                    await cur.execute(
-                        "SELECT * FROM hashrate ORDER BY timestamp DESC"
-                    )
-                    res = await cur.fetchall()
-                    for hashrate_data in res:
+                    now = int(time.time())
+                    await cur.execute("SELECT * FROM block WHERE timestamp > %s ORDER BY height DESC", (now - 86400,))
+                    all_blocks = await cur.fetchall()
+                    puzzle_rewards = sum(block["coinbase_reward"] * 2 // 3 for block in all_blocks)
+                    block_reward = sum(block["block_reward"] for block in all_blocks)
+                    hashrate_24h = await cast(DatabaseAddress, self).get_network_speed(86400)
+                    puzzle_rewards_1M = (float(puzzle_rewards) / float(hashrate_24h)) * 1_000_000 if hashrate_24h else 0
+                    await self.redis.set("24H_reward:puzzle", int(puzzle_rewards))
+                    await self.redis.set("24H_reward:block", int(block_reward))
+                    await self.redis.set("24H_reward:1M_puzzle", int(puzzle_rewards_1M))
+                except Exception as e:
+                    await self.message_callback(ExplorerMessage(ExplorerMessage.Type.DatabaseError, e))
+                    raise
+
+    # start_timestamp: 5min eg: 1722964800(2024-08-07 01:20:00) < 1722964875(block1 timestamp)
+    async def update_hashrate(self, start_timestamp: int):
+        async with self.pool.connection() as conn:
+            async with conn.cursor() as cur:
+                try:
+                    now = int(time.time())
+                    while start_timestamp <= now:
                         await cur.execute(
                             "SELECT b.height FROM solution s "
                             "JOIN puzzle_solution ps ON ps.id = s.puzzle_solution_id "
                             "JOIN block b ON b.id = ps.block_id "
                             "WHERE timestamp > %s AND timestamp < %s",
-                            (hashrate_data["timestamp"] - 900,hashrate_data["timestamp"])
+                            (start_timestamp - 900, start_timestamp)
                         )
                         partial_solutions = await cur.fetchall()
                         heights = list(map(lambda x: x['height'], partial_solutions))
@@ -1968,26 +1981,9 @@ class DatabaseInsert(DatabaseBase):
                         await cur.execute(
                             "INSERT INTO hashrate (timestamp, hashrate) VALUES (%s, %s) "
                             "ON CONFLICT (timestamp) DO UPDATE SET hashrate = %s",
-                            (hashrate_data["timestamp"], hashrate, hashrate)
+                            (start_timestamp, hashrate, hashrate)
                         )
-                except Exception as e:
-                    await self.message_callback(ExplorerMessage(ExplorerMessage.Type.DatabaseError, e))
-                    raise
-
-    async def save_24H_reward_data(self):
-        async with self.pool.connection() as conn:
-            async with conn.cursor() as cur:
-                try:
-                    now = int(time.time())
-                    await cur.execute("SELECT * FROM block WHERE timestamp > %s ORDER BY height DESC", (now - 86400,))
-                    all_blocks = await cur.fetchall()
-                    puzzle_rewards = sum(block["coinbase_reward"] * 2 // 3 for block in all_blocks)
-                    block_reward = sum(block["block_reward"] for block in all_blocks)
-                    hashrate_24h = await cast(DatabaseAddress, self).get_network_speed(86400)
-                    puzzle_rewards_1M = (float(puzzle_rewards) / float(hashrate_24h)) * 1_000_000 if hashrate_24h else 0
-                    await self.redis.set("24H_reward:puzzle", int(puzzle_rewards))
-                    await self.redis.set("24H_reward:block", int(block_reward))
-                    await self.redis.set("24H_reward:1M_puzzle", int(puzzle_rewards_1M))
+                        start_timestamp += 300
                 except Exception as e:
                     await self.message_callback(ExplorerMessage(ExplorerMessage.Type.DatabaseError, e))
                     raise
