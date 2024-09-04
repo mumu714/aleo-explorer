@@ -532,21 +532,6 @@ LIMIT 10
                     await self.message_callback(ExplorerMessage(ExplorerMessage.Type.DatabaseError, e))
                     raise
 
-    async def get_15min_top_miner(self, start: int, end: int) -> list[dict[str, Any]]:
-        async with self.pool.connection() as conn:
-            async with conn.cursor() as cur:
-                try:
-                    await cur.execute(
-                        "SELECT * FROM address_15min_hashrate "
-                        "ORDER BY hashrate DESC "
-                        "LIMIT %s OFFSET %s",
-                        (end - start, start)
-                    )
-                    return await cur.fetchall()
-                except Exception as e:
-                    await self.message_callback(ExplorerMessage(ExplorerMessage.Type.DatabaseError, e))
-                    raise
-
     async def get_hashrate(self, interval: int) -> list[dict[str, Any]]:
         async with self.pool.connection() as conn:
             async with conn.cursor() as cur:

@@ -414,16 +414,6 @@ CREATE TABLE explorer.epoch (
 
 
 --
--- Name: address_15min_hashrate; Type: TABLE; Schema: explorer; Owner: -
---
-
-CREATE TABLE explorer.address_15min_hashrate (
-    address text NOT NULL,
-    "timestamp" bigint NOT NULL,
-    hashrate numeric(40,10) NOT NULL
-);
-
---
 -- Name: address_transition; Type: TABLE; Schema: explorer; Owner: -
 --
 
@@ -2872,12 +2862,6 @@ ALTER TABLE ONLY explorer.address_transition_summary
     ADD CONSTRAINT address_transition_summary_pk PRIMARY KEY (address, program_id, function_name);
 
 
---
--- Name: address_15min_hashrate address_15min_hashrate_pk; Type: CONSTRAINT; Schema: explorer; Owner: -
---
-
-ALTER TABLE ONLY explorer.address_15min_hashrate
-    ADD CONSTRAINT address_15min_hashrate_pk PRIMARY KEY (address);
 
 --
 -- Name: mapping_bonded_history mapping_bonded_history_pk; Type: CONSTRAINT; Schema: explorer; Owner: -

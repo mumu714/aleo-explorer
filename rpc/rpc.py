@@ -135,7 +135,6 @@ routes = [
     Route("/bonds", address_bonds_transaction_route),
     Route("/transfer", address_transfer_transaction_route),
     Route("/baseline_trending", baseline_trending_route),
-    Route("/biggest_miners", biggest_miners_route),
     Route("/favorites_update", favorites_update_route, methods=["POST"]),
     # Other
     Route("/robots.txt", robots_route),

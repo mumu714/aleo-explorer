@@ -1844,43 +1844,6 @@ class DatabaseInsert(DatabaseBase):
                     await self.message_callback(ExplorerMessage(ExplorerMessage.Type.DatabaseError, e))
                     raise
 
-    async def save_address_15min_hashrate(self, address: str):
-        now = int(time.time())
-        address_hashrate = await cast(DatabaseAddress, self).get_address_15min_speed(address)
-        async with self.pool.connection() as conn:
-            async with conn.cursor() as cur:
-                try:
-                    await cur.execute(
-                        "INSERT INTO address_15min_hashrate (timestamp, address, hashrate) "
-                        "VALUES (%s, %s, %s) "
-                        "ON CONFLICT (address) DO UPDATE SET timestamp = %s, hashrate = %s",
-                        (now, address, address_hashrate, now, address_hashrate)
-                    )
-                except Exception as e:
-                    await self.message_callback(ExplorerMessage(ExplorerMessage.Type.DatabaseError, e))
-                    raise
-
-    async def update_15min_address_hashrate(self):
-        async with self.pool.connection() as conn:
-            async with conn.cursor() as cur:
-                now = int(time.time())
-                interval = 900
-                try:
-                    await cur.execute(
-                        "SELECT address FROM solution s "
-                        "JOIN puzzle_solution ps ON ps.id = s.puzzle_solution_id "
-                        "JOIN block b ON b.id = ps.block_id "
-                        "WHERE timestamp > %s",
-                        (now - interval,)
-                    )
-                    prover_solutions = await cur.fetchall()
-                    addresses = set(map(lambda x: x['address'], prover_solutions))
-                    for address in addresses:
-                        await self.save_address_15min_hashrate(address)
-                except Exception as e:
-                    await self.message_callback(ExplorerMessage(ExplorerMessage.Type.DatabaseError, e))
-                    raise
-
     async def _save_coinbase(self, timestamp: int, height: int, reward: float):
         async with self.pool.connection() as conn:
             async with conn.cursor() as cur:
