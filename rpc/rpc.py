@@ -33,6 +33,8 @@ from middleware.minify import MinifyMiddleware
 from .chain_routes import *
 from .program_routes import *
 from .proving_routes import *
+from .validator_routes import *
+from .chart_routes import *
 from .utils import out_of_sync_check
 from .format import *
 
@@ -101,13 +103,14 @@ routes = [
     Route("/solution", solution_route),
     Route("/search", search_route),
     Route("/blocks", blocks_route),
+    Route("/unconfirmed_transactions", unconfirmed_transactions_route),
+    # chart
     Route("/hashrate/{type}", hashrate_route),
     Route("/epoch", epoch_route),
     Route("/epoch_hashrate/{type}", epoch_hashrate_route),
     Route("/epoch_hash", epoch_hash_route),
     Route("/coinbase", coinbase_route),
     Route("/proof_target/{type}", proof_target_route),
-    Route("/unconfirmed_transactions", unconfirmed_transactions_route),
     # Programs
     Route("/programs", programs_route),
     Route("/program", program_route),
@@ -115,25 +118,25 @@ routes = [
     Route("/similar_programs", similar_programs_route),
     Route("/upload_source", upload_source_route, methods=["GET", "POST"]),
     Route("/submit_source", submit_source_route, methods=["POST"]),
-    # Proving
-    Route("/calc", calc_route),
-    Route("/incentives", incentives_route),
+    # Validator
     Route("/validators", validators_route),
-    Route("/estimate_fee", estimate_fee_route),
     Route("/validator_dpr", validator_dpr_route),
     Route("/validator/bonds", validator_bonds_route),
-    Route("/validator/trending", validator_trending_route),
+     Route("/validator/trending", validator_trending_route),
+    # Proving
+    Route("/calc", calc_route),
+    Route("/estimate_fee", estimate_fee_route),
     Route("/credits", credits_route),
     Route("/power/leaderboard/{type}", power_route),
     Route("/reward/leaderboard/{type}", reward_route),
     Route("/address", address_route),
-    Route("/address_trending", address_trending_route),
     Route("/address_solutions", address_solution_route),
     Route("/address_transactions", address_transaction_route),
     Route("/address_function_transactions", address_function_transaction_route),
     Route("/address_favorite", address_favorite_route),
     Route("/bonds", address_bonds_transaction_route),
     Route("/transfer", address_transfer_transaction_route),
+    Route("/address_trending", address_trending_route),
     Route("/baseline_trending", baseline_trending_route),
     Route("/favorites_update", favorites_update_route, methods=["POST"]),
     # Other
