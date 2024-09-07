@@ -306,12 +306,40 @@ BEGIN
                 VALUES (NEW.address, NEW.program_id, NEW.function_name, 1);
             END IF;
         END IF;
+
+    ELSIF TG_OP = 'UPDATE' THEN
+        IF OLD.type IS DISTINCT FROM 'Rejected' AND NEW.type = 'Rejected' THEN
+            IF NOT EXISTS (
+                SELECT 1
+                FROM explorer.address_transition
+                WHERE transition_id = NEW.transition_id
+                AND address = NEW.address
+                AND program_id = NEW.program_id
+                AND function_name = NEW.function_name
+                AND type = 'Rejected'
+            ) THEN
+                UPDATE explorer.address_transition_summary
+                SET rejected_transition_count = rejected_transition_count + 1
+                WHERE address = NEW.address
+                AND program_id = NEW.program_id
+                AND function_name = NEW.function_name;
+            END IF;
+        END IF;
+
     ELSIF TG_OP = 'DELETE' THEN
         UPDATE explorer.address_transition_summary
         SET transition_count = transition_count - 1
         WHERE address = OLD.address
           AND program_id = OLD.program_id
           AND function_name = OLD.function_name;
+        
+        IF OLD.type = 'Rejected' THEN
+            UPDATE explorer.address_transition_summary
+            SET rejected_transition_count = rejected_transition_count - 1
+            WHERE address = OLD.address
+              AND program_id = OLD.program_id
+              AND function_name = OLD.function_name;
+        END IF;
 
         DELETE FROM explorer.address_transition_summary
         WHERE address = OLD.address
@@ -421,7 +449,8 @@ CREATE TABLE explorer.address_transition (
     address text NOT NULL,
     transition_id integer NOT NULL,
     program_id text NOT NULL,
-    function_name text NOT NULL
+    function_name text NOT NULL,
+    type text
 );
 
 
@@ -433,7 +462,8 @@ CREATE TABLE explorer.address_transition_summary (
     address text NOT NULL,
     program_id text NOT NULL,
     function_name text NOT NULL,
-    transition_count INT
+    transition_count INT DEFAULT 0,
+    rejected_transition_count INT DEFAULT 0
 );
 
 CREATE TRIGGER address_transition_before_insert_trigger
@@ -443,6 +473,11 @@ EXECUTE FUNCTION explorer.update_address_transition_summary();
 
 CREATE TRIGGER address_transition_after_delete_trigger
 AFTER DELETE ON explorer.address_transition
+FOR EACH ROW
+EXECUTE FUNCTION explorer.update_address_transition_summary();
+
+CREATE TRIGGER address_transition_before_update_trigger
+BEFORE UPDATE OF type ON explorer.address_transition
 FOR EACH ROW
 EXECUTE FUNCTION explorer.update_address_transition_summary();
 

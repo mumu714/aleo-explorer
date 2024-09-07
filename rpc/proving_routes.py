@@ -727,6 +727,9 @@ async def address_transfer_transaction_route(request: Request):
     address = request.query_params.get("a")
     if address is None:
         raise HTTPException(status_code=400, detail="Missing address")
+    type = request.query_params.get("type")
+    if type is not None and type not in ["rejected", "accepted"]:
+        raise HTTPException(status_code=400, detail="Error type")
     try:
         limit = request.query_params.get("limit")
         offset = request.query_params.get("offset")
@@ -740,10 +743,21 @@ async def address_transfer_transaction_route(request: Request):
             offset = int(offset)
     except:
         raise HTTPException(status_code=400, detail="Invalid page")
-    transfer_count = await db.get_transition_count_by_address_program_id_function(address, "credits.aleo", "transfer_public")
+    transfer_count_list = await db.get_transition_count_by_address_program_id_function(address, "credits.aleo", "transfer_public")
+    if type is None:
+        transfer_count = transfer_count_list["transition_count"]
+    elif type == "rejected":
+        type = "Rejected"
+        transfer_count = transfer_count_list["rejected_transition_count"]
+    else:
+        type = "Accepted"
+        transfer_count = transfer_count_list["transition_count"] - transfer_count_list["rejected_transition_count"]
     if offset < 0 or offset > transfer_count:
         raise HTTPException(status_code=400, detail="Invalid page")
-    transfer_transitions = await db.get_transition_by_address_program_id_function(address, "credits.aleo", "transfer_public", offset, offset + limit)
+    if type:
+        transfer_transitions = await db.get_transition_by_address_program_id_function_type(address, "credits.aleo", "transfer_public", offset, offset + limit, type)
+    else:
+        transfer_transitions = await db.get_transition_by_address_program_id_function(address, "credits.aleo", "transfer_public", offset, offset + limit)
     data: list[dict[str, Any]] = []
     for transition_data in transfer_transitions:
         transition = await db.get_transition(transition_data["transition_id"])

@@ -199,7 +199,7 @@ class DatabaseAddress(DatabaseBase):
                     await cur.execute(
                         """
 WITH ats AS
-    (SELECT DISTINCT transition_id
+    (SELECT DISTINCT transition_id, type
      FROM address_transition
      WHERE address = %s
      ORDER BY transition_id DESC
@@ -208,7 +208,7 @@ SELECT DISTINCT ts.transition_id,
                 b.height,
                 b.timestamp,
                 tx.transaction_id, 
-                ct.type
+                ats.type
 FROM ats
 JOIN transition ts ON ats.transition_id = ts.id
 JOIN transaction_execute te ON te.id = ts.transaction_execute_id
@@ -220,7 +220,7 @@ SELECT DISTINCT ts.transition_id,
                 b.height,
                 b.timestamp,
                 tx.transaction_id, 
-                ct.type
+                ats.type
 FROM ats
 JOIN transition ts ON ats.transition_id = ts.id
 JOIN fee f ON f.id = ts.fee_id

@@ -653,6 +653,12 @@ class DatabaseInsert(DatabaseBase):
                 reject_reasons = cast(list[Optional[str]], reject_reasons)
                 ct_index = cast(int, ct_index)
                 if isinstance(confirmed_transaction, AcceptedDeploy):
+                    await cur.execute(
+                        "UPDATE address_transition at SET type = %s "
+                        "FROM transition ts JOIN transaction tx ON tx.id = ts.transaction_id "
+                        "WHERE at.transition_id = ts.id AND tx.transaction_id = %s",
+                        ("Accepted", str(transaction.id))
+                    )
                     transaction = cast(DeployTransaction, transaction)
                     if reject_reasons[ct_index] is not None:
                         raise RuntimeError("expected no rejected reason for accepted deploy transaction")
@@ -668,10 +674,44 @@ class DatabaseInsert(DatabaseBase):
                     await DatabaseInsert._save_program(cur, transaction.deployment.program, deploy_transaction_db_id, transaction)
 
                 elif isinstance(confirmed_transaction, AcceptedExecute):
+                    await cur.execute(
+                        "UPDATE address_transition at SET type = %s "
+                        "FROM transition ts JOIN transaction tx ON tx.id = ts.transaction_id "
+                        "WHERE at.transition_id = ts.id AND tx.transaction_id = %s",
+                        ("Accepted", str(transaction.id))
+                    )
                     if reject_reasons[ct_index] is not None:
                         raise RuntimeError("expected no rejected reason for accepted execute transaction")
 
                 elif isinstance(confirmed_transaction, (RejectedDeploy, RejectedExecute)):
+                    if isinstance(confirmed_transaction, RejectedExecute):
+                        tx = confirmed_transaction.transaction
+                        fee = cast(Fee, tx.fee)
+                        await cur.execute(
+                            "UPDATE address_transition at SET type = %s "
+                            "FROM transition ts JOIN transaction tx ON tx.id = ts.transaction_id "
+                            "WHERE at.transition_id = ts.id AND tx.transaction_id = %s AND ts.transition_id = %s",
+                            ("Accepted", str(transaction.id), str(fee.transition.id))
+                        )
+                        rejected = confirmed_transaction.rejected
+                        if not isinstance(rejected, RejectedExecution):
+                            raise ValueError("expected Rejected Execution transaction")
+                        for ts in rejected.execution.transitions:
+                            await cur.execute(
+                                "UPDATE address_transition at SET type = %s "
+                                "FROM transition ts JOIN transaction tx ON tx.id = ts.transaction_id "
+                                "WHERE at.transition_id = ts.id AND tx.transaction_id = %s AND ts.transition_id = %s",
+                                ("Rejected", str(transaction.id), str(ts.id))
+                            )
+                    else:
+                        tx = confirmed_transaction.transaction
+                        fee = cast(Fee, tx.fee)
+                        await cur.execute(
+                            "UPDATE address_transition at SET type = %s "
+                            "FROM transition ts JOIN transaction tx ON tx.id = ts.transaction_id "
+                            "WHERE at.transition_id = ts.id AND tx.transaction_id = %s AND ts.transition_id = %s",
+                            ("Accepted", str(transaction.id), str(fee.transition.id))
+                        )
                     if reject_reasons[ct_index] is None:
                         raise RuntimeError("expected a rejected reason for rejected transaction")
                     await cur.execute("UPDATE confirmed_transaction SET reject_reason = %s WHERE id = %s",

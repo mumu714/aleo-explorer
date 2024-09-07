@@ -92,18 +92,18 @@ class DatabaseTransaction(DatabaseBase):
                     await self.message_callback(ExplorerMessage(ExplorerMessage.Type.DatabaseError, e))
                     raise
 
-    async def get_transition_count_by_address_program_id_function(self, address: str, program_id:str, function: str) -> int:
+    async def get_transition_count_by_address_program_id_function(self, address: str, program_id:str, function: str) -> dict[str, int]:
         async with self.pool.connection() as conn:
             async with conn.cursor() as cur:
                 try:
                     await cur.execute(
-                        "SELECT SUM(transition_count) AS count FROM address_transition_summary "
+                        "SELECT transition_count, rejected_transition_count  FROM address_transition_summary "
                         "WHERE address = %s AND program_id = %s AND function_name = %s ",(address,program_id, function,)
                     )
                     res = await cur.fetchone()
-                    if res is None or res["count"] is None:
-                        return 0
-                    return res["count"]
+                    if res is None:
+                        return {"transition_count": 0, "rejected_transition_count": 0}
+                    return res
                 except Exception as e:
                     await self.message_callback(ExplorerMessage(ExplorerMessage.Type.DatabaseError, e))
                     raise
@@ -132,7 +132,7 @@ class DatabaseTransaction(DatabaseBase):
                     await cur.execute(
                         """
 WITH ats AS
-    (SELECT DISTINCT transition_id
+    (SELECT DISTINCT transition_id, type 
      FROM address_transition
      WHERE address = %s
      ORDER BY transition_id DESC
@@ -142,7 +142,7 @@ SELECT DISTINCT ts.transition_id,
                 b.timestamp,
                 tx.transaction_id, 
                 tx.first_seen,
-                ct.type
+                ats.type
 FROM ats
 JOIN transition ts ON ats.transition_id = ts.id
 JOIN transaction tx ON tx.id = ts.transaction_id
@@ -173,7 +173,7 @@ ORDER BY height DESC
                     await cur.execute(
                         """
 WITH ats AS
-    (SELECT DISTINCT at.transition_id
+    (SELECT DISTINCT transition_id, type
      FROM address_transition at
      WHERE address = %s AND function_name = %s
      ORDER BY transition_id DESC
@@ -183,7 +183,7 @@ SELECT DISTINCT ts.transition_id,
                 b.timestamp,
                 tx.transaction_id, 
                 tx.first_seen,
-                ct.type
+                ats.type
 FROM ats
 JOIN transition ts ON ats.transition_id = ts.id
 JOIN transaction tx ON tx.id = ts.transaction_id
@@ -214,7 +214,7 @@ ORDER BY height DESC
                     await cur.execute(
                         """
 WITH ats AS
-    (SELECT DISTINCT at.transition_id
+    (SELECT DISTINCT transition_id, type
      FROM address_transition at
      WHERE address = %s AND program_id = %s AND function_name = %s
      ORDER BY transition_id DESC
@@ -224,7 +224,7 @@ SELECT DISTINCT ts.transition_id,
                 b.timestamp,
                 tx.transaction_id, 
                 tx.first_seen,
-                ct.type
+                ats.type
 FROM ats
 JOIN transition ts ON ats.transition_id = ts.id
 JOIN transaction tx ON tx.id = ts.transaction_id
@@ -248,6 +248,47 @@ ORDER BY height DESC
                     await self.message_callback(ExplorerMessage(ExplorerMessage.Type.DatabaseError, e))
                     raise
 
+    async def get_transition_by_address_program_id_function_type(self, address: str, program_id: str, function: str, start: int, end: int, type: str) -> list[dict[str, Any]]:
+        async with self.pool.connection() as conn:
+            async with conn.cursor() as cur:
+                try:
+                    await cur.execute(
+                        """
+WITH ats AS
+    (SELECT DISTINCT transition_id, type 
+     FROM address_transition at
+     WHERE address = %s AND program_id = %s AND function_name = %s AND type = %s 
+     ORDER BY transition_id DESC
+     LIMIT %s OFFSET %s)
+SELECT DISTINCT ts.transition_id,
+                b.height,
+                b.timestamp,
+                tx.transaction_id, 
+                tx.first_seen,
+                ats.type
+FROM ats
+JOIN transition ts ON ats.transition_id = ts.id
+JOIN transaction tx ON tx.id = ts.transaction_id
+LEFT JOIN confirmed_transaction ct ON ct.id = tx.confirmed_transaction_id
+LEFT JOIN block b ON b.id = ct.block_id
+ORDER BY height DESC
+""",
+                            (address, program_id, function, type, end - start, start)
+                        )
+                    def transform(x: dict[str, Any]):
+                        return {
+                            "transition_id": x["transition_id"],
+                            "height": x["height"],
+                            "timestamp": x["timestamp"],
+                            "transaction_id": x["transaction_id"],
+                            "type": x["type"],
+                            "first_seen": x["first_seen"]
+                        }
+                    return list(map(lambda x: transform(x), await cur.fetchall()))
+                except Exception as e:
+                    await self.message_callback(ExplorerMessage(ExplorerMessage.Type.DatabaseError, e))
+                    raise
+
     async def get_bond_transition_by_address(self, address: str, start: int, end: int) -> list[dict[str, Any]]:
         async with self.pool.connection() as conn:
             async with conn.cursor() as cur:
@@ -255,7 +296,7 @@ ORDER BY height DESC
                     await cur.execute(
                         """
 WITH ats AS
-    (SELECT DISTINCT at.transition_id
+    (SELECT DISTINCT transition_id, type 
      FROM address_transition at
      WHERE address = %s AND function_name = ANY(%s::text[])
      ORDER BY transition_id DESC
@@ -265,7 +306,7 @@ SELECT DISTINCT ts.transition_id,
                 b.timestamp,
                 tx.transaction_id, 
                 tx.first_seen,
-                ct.type
+                ats.type
 FROM ats
 JOIN transition ts ON ats.transition_id = ts.id
 JOIN transaction tx ON tx.id = ts.transaction_id
