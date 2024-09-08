@@ -85,12 +85,23 @@ async def index_route(request: Request):
     }
     return JSONResponse(ctx)
 
+async def latest_height_route(request: Request):
+    db: Database = request.app.state.db
+    latest_height = await db.get_latest_height()
+    if latest_height is None:
+        raise HTTPException(status_code=400, detail="No Block be found")
+    ctx = {
+        "latest_height": latest_height
+    }
+    return JSONResponse(ctx)
+
 async def robots_route(_: Request):
     return FileResponse("rpc/robots.txt", headers={'Cache-Control': 'public, max-age=3600'})
 
 
 routes = [
     Route("/", index_route),
+     Route("/latest/height", latest_height_route),
     # Blockchain
     Route("/block", block_route),
     Route("/block_solutions", block_solution_route),
