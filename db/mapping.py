@@ -71,6 +71,31 @@ class DatabaseMapping(DatabaseBase):
                     await self.message_callback(ExplorerMessage(ExplorerMessage.Type.DatabaseError, e))
                     raise
 
+    async def get_mapping_key(self, program_id: str, mapping: str, value: bytes) -> Optional[bytes]:
+        async with self.pool.connection() as conn:
+            async with conn.cursor() as cur:
+                try:
+                    if program_id == "credits.aleo" and mapping in ["committee", "bonded", "delegated"]:
+                        conn = self.redis
+                        data = await conn.hget(f"{program_id}:{mapping}", value)
+                        if data is None:
+                            return None
+                        return bytes.fromhex(json.loads(data)["key"])
+                    else:
+                        await cur.execute(
+                            "SELECT key FROM mapping_value mv "
+                            "JOIN mapping m on mv.mapping_id = m.id "
+                            "WHERE m.program_id = %s AND m.mapping = %s AND mv.value = %s",
+                            (program_id, mapping, value)
+                        )
+                        res = await cur.fetchone()
+                        if res is None:
+                            return None
+                        return res['key']
+                except Exception as e:
+                    await self.message_callback(ExplorerMessage(ExplorerMessage.Type.DatabaseError, e))
+                    raise
+
     async def get_mapping_size(self, program_id: str, mapping: str) -> int:
         async with self.pool.connection() as conn:
             async with conn.cursor() as cur:

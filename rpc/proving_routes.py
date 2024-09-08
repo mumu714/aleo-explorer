@@ -522,6 +522,27 @@ async def address_route(request: Request):
         value = cast(PlaintextValue, Value.load(BytesIO(delegated_bytes)))
         plaintext = cast(LiteralPlaintext, value.plaintext)
         delegated = int(cast(Int, plaintext.literal.primitive))
+    be_withdrawal_value = PlaintextValue(plaintext=address_key)
+    be_withdrawal_bytes = await db.get_mapping_key("credits.aleo", "withdraw", be_withdrawal_value.dump())
+    if be_withdrawal_bytes is None:
+        be_withdrawal_state = None
+    else:
+        be_withdrawal_address= cast(LiteralPlaintext, Plaintext.load(BytesIO(be_withdrawal_bytes)))
+        be_withdrawal_address_key_bytes = be_withdrawal_address.dump()
+        be_withdrawal_bonded_key_id = cached_get_key_id("credits.aleo", "bonded", be_withdrawal_address_key_bytes)
+        be_withdrawal_bond_state_bytes = await db.get_mapping_value("credits.aleo", "bonded", be_withdrawal_bonded_key_id)
+        if be_withdrawal_bond_state_bytes is None:
+            be_withdrawal_state = None
+        else:
+            value = cast(PlaintextValue, Value.load(BytesIO(be_withdrawal_bond_state_bytes)))
+            plaintext = cast(StructPlaintext, value.plaintext)
+            validator = cast(LiteralPlaintext, plaintext["validator"])
+            amount = cast(LiteralPlaintext, plaintext["microcredits"])
+            be_withdrawal_state = {
+                "be_withdrawal_address": str(be_withdrawal_address.literal.primitive),
+                "validator": str(validator.literal.primitive),
+                "amount": int(cast(Int, amount.literal.primitive)),
+            }
     if stake_reward is None:
         stake_reward = 0
     if delegate_reward is None:
@@ -575,6 +596,7 @@ async def address_route(request: Request):
         "address_stakes": address_stakes,
         "delegated": delegated,
         "withdrawal_address": withdrawal_address,
+        "be_withdrawal_state": be_withdrawal_state,
         "uptime": uptime,
         "stake_reward": stake_reward,
         "delegate_reward": delegate_reward,
