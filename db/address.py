@@ -538,8 +538,8 @@ LIMIT 10
                             "WITH hashrate_rows AS "
                                 "(SELECT *, ROW_NUMBER() OVER (ORDER BY timestamp) AS row_num FROM hashrate), "
                             "interval_params AS "
-                                "(SELECT CASE WHEN COUNT(*) / 1000 = 0 THEN 1 "
-                                "ELSE COUNT(*) / 1000 END AS interval FROM hashrate_rows) "
+                                "(SELECT CASE WHEN COUNT(*) / 500 = 0 THEN 1 "
+                                "ELSE COUNT(*) / 500 END AS interval FROM hashrate_rows) "
                             "SELECT * FROM hashrate_rows CROSS JOIN interval_params "
                             "WHERE (row_num - 1) % interval_params.interval = 0 ORDER BY timestamp DESC"
                         )
@@ -555,8 +555,8 @@ LIMIT 10
                                     "(SELECT *, ROW_NUMBER() OVER (ORDER BY timestamp) AS row_num "
                                     "FROM hashrate WHERE timestamp > %s), "
                                 "interval_params AS "
-                                    "(SELECT CASE WHEN COUNT(*) / 500 = 0 THEN 1 "
-                                    "ELSE COUNT(*) / 500 END AS interval FROM hashrate_rows) "
+                                    "(SELECT CASE WHEN COUNT(*) / 300 = 0 THEN 1 "
+                                    "ELSE COUNT(*) / 300 END AS interval FROM hashrate_rows) "
                                 "SELECT * FROM hashrate_rows CROSS JOIN interval_params "
                                 "WHERE row_num %% interval_params.interval = 0 ORDER BY timestamp DESC",(now - interval,)
                             )
