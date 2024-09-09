@@ -2835,7 +2835,7 @@ ALTER TABLE ONLY explorer.epoch_hashrate
 --
 
 ALTER TABLE ONLY explorer.coinbase
-    ADD CONSTRAINT coinbase_pk PRIMARY KEY (height);
+    ADD CONSTRAINT coinbase_pk PRIMARY KEY (timestamp);
 
 
 --
@@ -3150,18 +3150,11 @@ CREATE INDEX epoch_hashrate_timestamp_index ON explorer.epoch_hashrate USING btr
 
 
 --
--- Name: coinbase_height_uindex; Type: INDEX; Schema: explorer; Owner: -
---
-
-CREATE UNIQUE INDEX coinbase_height_uindex ON explorer.coinbase USING btree (height);
-
-
---
 -- Name: coinbase_timestamp_index; Type: INDEX; Schema: explorer; Owner: -
 --
 
 
-CREATE INDEX coinbase_timestamp_index ON explorer.coinbase USING btree ("timestamp");
+CREATE UNIQUE INDEX coinbase_timestamp_index ON explorer.coinbase USING btree ("timestamp");
 
 
 --
