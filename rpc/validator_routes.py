@@ -65,13 +65,14 @@ async def validators_route(request: Request):
             plaintext = cast(StructPlaintext, value.plaintext)
             commission = cast(LiteralPlaintext, plaintext["commission"])
             commission_value = int(cast(Int, commission.literal.primitive))
+        last_epoch_apr_no_commission = await db.get_validatory_last_epoch_apr(validator["address"])
         all_data.append({
             "address": validator["address"],
             "address_type": "Validator",
             "staking_reward": stake_reward + delegate_reward,
             "stake": int(validator["stake"]),
             "commission": commission_value,
-            "last_epoch_apr": await db.get_validatory_last_epoch_apr(validator["address"]),
+            "last_epoch_apr": float(last_epoch_apr_no_commission)*(1-commission_value*0.01),
             "is_open": validator["is_open"],
             "uptime": validator["uptime"] * 100,
             "vote_power": int(validator["stake"]) / int(committee["total_stake"]) * 100
