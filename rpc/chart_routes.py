@@ -100,10 +100,15 @@ async def coinbase_route(request: Request):
     coinbases = await db.get_coinbase()
     data: list[dict[str, Any]] = []
     for coinbase in coinbases:
+        staking_reward = int(coinbase["block_reward"])
+        puzzle_reward = int(coinbase["reward"] * 2 // 3)
         data.append({
             "height": coinbase["height"],
             "timestamp": coinbase["timestamp"],
-            "reward": float(coinbase["reward"])
+            "staking_reward": staking_reward,
+            "puzzle_reward": puzzle_reward,
+            "total_reward": staking_reward + puzzle_reward,
+            "reward": int(coinbase["reward"])
         })
     ctx = {
         "coinbase": data,
