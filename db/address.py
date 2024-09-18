@@ -398,7 +398,7 @@ LIMIT 10
             async with conn.cursor() as cur:
                 try:
                     await cur.execute(
-                        "SELECT height, block_hash, reward, address, target_sum, solution_id FROM solution s "
+                        "SELECT height, block_hash, reward, address, target, target_sum, solution_id FROM solution s "
                         "JOIN puzzle_solution ps on s.puzzle_solution_id = ps.id "
                         "JOIN block b on b.id = ps.block_id "
                         "WHERE solution_id = %s",
