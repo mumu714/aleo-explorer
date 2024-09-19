@@ -57,7 +57,7 @@ class DatabaseBase:
                     "row_factory": dict_row,
                     "autocommit": True,
                 },
-                max_size=16,
+                max_size=100,
             )
             # noinspection PyArgumentList
             self.redis = Redis(host=self.redis_server, port=self.redis_port, db=self.redis_db, decode_responses=True)
