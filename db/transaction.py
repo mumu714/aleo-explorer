@@ -108,14 +108,14 @@ class DatabaseTransaction(DatabaseBase):
                     await self.message_callback(ExplorerMessage(ExplorerMessage.Type.DatabaseError, e))
                     raise
 
-    async def get_bond_transition_count_by_address(self, address: str) -> int:
+    async def get_transition_count_by_address_program_id_functions(self, address: str, program_id:str, functions: list[str]) -> int:
         async with self.pool.connection() as conn:
             async with conn.cursor() as cur:
                 try:
                     await cur.execute(
                         "SELECT SUM(transition_count) AS count FROM address_transition_summary "
-                        "WHERE address = %s AND function_name = ANY(%s::text[])",
-                        (address, ["bond_public", "unbond_public", "claim_unbond_public"],)
+                        "WHERE address = %s AND program_id = %s AND function_name = ANY(%s::text[])",
+                        (address, program_id, functions,)
                     )
                     res = await cur.fetchone()
                     if res is None or res["count"] is None:
@@ -289,7 +289,7 @@ ORDER BY height DESC
                     await self.message_callback(ExplorerMessage(ExplorerMessage.Type.DatabaseError, e))
                     raise
 
-    async def get_bond_transition_by_address(self, address: str, start: int, end: int) -> list[dict[str, Any]]:
+    async def get_transition_by_address_program_id_functions(self, address: str, program_id: str, functions: list[str], start: int, end: int) -> list[dict[str, Any]]:
         async with self.pool.connection() as conn:
             async with conn.cursor() as cur:
                 try:
@@ -298,7 +298,7 @@ ORDER BY height DESC
 WITH ats AS
     (SELECT DISTINCT transition_id, type 
      FROM address_transition at
-     WHERE address = %s AND function_name = ANY(%s::text[])
+     WHERE address = %s AND program_id = %s AND function_name = ANY(%s::text[])
      ORDER BY transition_id DESC
      LIMIT %s OFFSET %s)
 SELECT DISTINCT ts.transition_id,
@@ -314,7 +314,7 @@ LEFT JOIN confirmed_transaction ct ON ct.id = tx.confirmed_transaction_id
 LEFT JOIN block b ON b.id = ct.block_id
 ORDER BY height DESC
 """,
-                        (address, ["bond_public", "unbond_public", "claim_unbond_public"], end - start, start)
+                        (address, program_id, functions, end - start, start)
                     )
                     def transform(x: dict[str, Any]):
                         return {

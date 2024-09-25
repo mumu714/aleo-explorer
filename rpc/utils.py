@@ -7,6 +7,7 @@ import aiohttp
 from db import Database
 import aleo_explorer_rust
 from aleo_types import *
+from aleo_types.cached import cached_get_key_id
 from typing import cast
 
 
@@ -139,3 +140,41 @@ def get_future_argument(argument: Argument) -> dict[str, Any]|str:
     else:
         raise ValueError("unknown argument type")
 
+async def get_transition_argument(db: Database, transition: Transition):
+    transfer_from = ""
+    transfer_to = ""
+    amount = 0
+    if transition.program_id == "credits.aleo":
+        if str(transition.function_name) in ("transfer_public", "transfer_public_as_signer"):
+            output = cast(FutureTransitionOutput, transition.outputs[0])
+            future = cast(Future, output.future.value)
+            transfer_from = str(db.get_primitive_from_argument_unchecked(future.arguments[0]))
+            transfer_to = str(db.get_primitive_from_argument_unchecked(future.arguments[1]))
+            amount = int(cast(u64, db.get_primitive_from_argument_unchecked(future.arguments[2])))
+        elif transition.function_name == "transfer_private_to_public":
+            output = cast(FutureTransitionOutput, transition.outputs[1])
+            future = cast(Future, output.future.value)
+            transfer_to = str(db.get_primitive_from_argument_unchecked(future.arguments[0]))
+            amount = int(cast(u64, db.get_primitive_from_argument_unchecked(future.arguments[1])))
+        elif transition.function_name == "transfer_public_to_private":
+            output = cast(FutureTransitionOutput, transition.outputs[1])
+            future = cast(Future, output.future.value)
+            transfer_from = str(db.get_primitive_from_argument_unchecked(future.arguments[0]))
+            amount = int(cast(u64, db.get_primitive_from_argument_unchecked(future.arguments[1])))
+        elif transition.function_name == "fee_public":
+            output = cast(FutureTransitionOutput, transition.outputs[0])
+            future = cast(Future, output.future.value)
+            transfer_from = str(db.get_primitive_from_argument_unchecked(future.arguments[0]))
+            amount = int(cast(u64, db.get_primitive_from_argument_unchecked(future.arguments[1])))
+        elif transition.function_name == "bond_validator":
+            output = cast(FutureTransitionOutput, transition.outputs[0])
+            future = cast(Future, output.future.value)
+            transfer_from = str(db.get_primitive_from_argument_unchecked(future.arguments[0]))
+            amount = int(cast(u64, db.get_primitive_from_argument_unchecked(future.arguments[2])))
+        elif transition.function_name == "bond_public":
+            output = cast(FutureTransitionOutput, transition.outputs[0])
+            future = cast(Future, output.future.value)
+            transfer_from = str(db.get_primitive_from_argument_unchecked(future.arguments[0]))
+            amount = int(cast(u64, db.get_primitive_from_argument_unchecked(future.arguments[3])))
+    return transfer_from, transfer_to, amount
+        

@@ -144,11 +144,11 @@ routes = [
     Route("/address_solutions", address_solution_route),
     Route("/address_transactions", address_transaction_route),
     Route("/address_function_transactions", address_function_transaction_route),
-    Route("/address_favorite", address_favorite_route),
     Route("/bonds", address_bonds_transaction_route),
     Route("/transfer", address_transfer_transaction_route),
     Route("/address_trending", address_trending_route),
     Route("/baseline_trending", baseline_trending_route),
+    Route("/address_favorite", address_favorite_route),
     Route("/favorites_update", favorites_update_route, methods=["POST"]),
     # Other
     Route("/robots.txt", robots_route),

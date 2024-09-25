@@ -11,7 +11,7 @@ from aleo_types import PlaintextValue, LiteralPlaintext, Literal, \
 from aleo_types.cached import cached_get_key_id
 from db import Database
 from .classes import UIAddress
-from .utils import get_address_type
+from .utils import get_address_type, get_transition_argument
 from .format import *
 from aleo_types import *
 
@@ -564,23 +564,7 @@ async def address_transaction_route(request: Request):
         transition = await db.get_transition(transition_data["transition_id"])
         if transition is None:
             raise HTTPException(status_code=550, detail="Transition not found")
-        from_address = ""
-        to_address = ""
-        credit = 0
-        for output in transition.outputs:
-            if isinstance(output, FutureTransitionOutput):
-                future = output.future.value
-                if future is not None:
-                    for i, argument in enumerate(future.arguments):
-                        if isinstance(argument, PlaintextArgument):
-                            plaintext = argument.plaintext
-                            if isinstance(plaintext, LiteralPlaintext) and plaintext.literal.type == Literal.Type.Address:
-                                if i == 0:
-                                    from_address = str(plaintext.literal.primitive)
-                                if i == 1:
-                                    to_address = str(plaintext.literal.primitive)
-                            if isinstance(plaintext, LiteralPlaintext) and plaintext.literal.type == Literal.Type.U64:
-                                credit = format_aleo_credit(plaintext.literal.primitive) # type: ignore
+        from_address, to_address, credit = await get_transition_argument(db, transition)
         state = "Pending"
         if transition_data["type"]:
             if transition_data["type"].startswith("Accepted"):
@@ -639,23 +623,7 @@ async def address_function_transaction_route(request: Request):
         transition = await db.get_transition(transition_data["transition_id"])
         if transition is None:
             raise HTTPException(status_code=550, detail="Transition not found")
-        from_address = ""
-        to_address = ""
-        credit = 0
-        for output in transition.outputs:
-            if isinstance(output, FutureTransitionOutput):
-                future = output.future.value
-                if future is not None:
-                    for i, argument in enumerate(future.arguments):
-                        if isinstance(argument, PlaintextArgument):
-                            plaintext = argument.plaintext
-                            if isinstance(plaintext, LiteralPlaintext) and plaintext.literal.type == Literal.Type.Address:
-                                if i == 0:
-                                    from_address = str(plaintext.literal.primitive)
-                                if i == 1:
-                                    to_address = str(plaintext.literal.primitive)
-                            if isinstance(plaintext, LiteralPlaintext) and plaintext.literal.type == Literal.Type.U64:
-                                credit = format_aleo_credit(plaintext.literal.primitive) # type: ignore
+        from_address, to_address, credit = await get_transition_argument(db, transition)
         state = "Pending"
         if transition_data["type"]:
             if transition_data["type"].startswith("Accepted"):
@@ -702,10 +670,11 @@ async def address_bonds_transaction_route(request: Request):
             offset = int(offset)
     except:
         raise HTTPException(status_code=400, detail="Invalid page")
-    bonds_count = await db.get_bond_transition_count_by_address(address)
+    functions = ["bond_public", "unbond_public", "claim_unbond_public"]
+    bonds_count = await db.get_transition_count_by_address_program_id_functions(address, "credits.aleo", functions)
     if offset < 0 or offset > bonds_count:
         raise HTTPException(status_code=400, detail="Invalid page")
-    bond_transitions = await db.get_bond_transition_by_address(address, offset, offset + limit)
+    bond_transitions = await db.get_transition_by_address_program_id_functions(address,  "credits.aleo", functions, offset, offset + limit)
     data: list[dict[str, Any]] = []
     for transition_data in bond_transitions:
         transition = await db.get_transition(transition_data["transition_id"])
