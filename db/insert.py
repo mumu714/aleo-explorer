@@ -1884,14 +1884,16 @@ class DatabaseInsert(DatabaseBase):
                     await self.message_callback(ExplorerMessage(ExplorerMessage.Type.DatabaseError, e))
                     raise
 
-    async def _save_coinbase(self, timestamp: int, height: int, reward: float, block_reward: float):
+    async def _save_coinbase(self, timestamp: int, height: int, solution_count: int, solution_reward: int, hashrate: float, reward: int, block_reward: int):
         async with self.pool.connection() as conn:
             async with conn.cursor() as cur:
                 try:
                     await cur.execute(
-                        "INSERT INTO coinbase (timestamp, height, block_reward, reward) "
-                        "VALUES (%s, %s, %s, %s) ON CONFLICT (timestamp) DO UPDATE SET reward = %s, height = %s, block_reward = %s",
-                        (timestamp, height, block_reward, reward, reward, height, block_reward)
+                        "INSERT INTO coinbase (timestamp, height, solution_count, solution_reward, hashrate, block_reward, reward) "
+                        "VALUES (%s, %s, %s, %s, %s, %s, %s) ON CONFLICT (timestamp) DO UPDATE SET "
+                        "height = %s, solution_count = %s, solution_reward = %s, hashrate = %s, block_reward = %s, reward = %s",
+                        (timestamp, height, solution_count, solution_reward, hashrate, block_reward, reward, 
+                         height, solution_count, solution_reward, hashrate, block_reward, reward)
                     )
                 except Exception as e:
                     await self.message_callback(ExplorerMessage(ExplorerMessage.Type.DatabaseError, e))
@@ -1910,7 +1912,13 @@ class DatabaseInsert(DatabaseBase):
                     all_blocks = await cur.fetchall()
                     coinbase_rewards = sum(block["coinbase_reward"] for block in all_blocks)
                     block_reward = sum(block["block_reward"] for block in all_blocks)
-                    await self._save_coinbase(previous_timestamp, all_blocks[0]["height"], coinbase_rewards, block_reward)
+                    solutions = await cast(DatabaseAddress, self).get_solutions_by_time(previous_timestamp)
+                    cur_solution = [solution for solution in solutions if trending_time > solution["timestamp"] > previous_timestamp]
+                    solution_count = len(cur_solution)
+                    solution_reward = sum(solution["reward"] for solution in cur_solution)
+                    speed = float(sum(solution["pre_proof_target"] for solution in cur_solution) / 86400)
+                    await self._save_coinbase(previous_timestamp, all_blocks[0]["height"], solution_count, solution_reward, speed, 
+                                              coinbase_rewards, block_reward)
                 except Exception as e:
                     await self.message_callback(ExplorerMessage(ExplorerMessage.Type.DatabaseError, e))
                     raise

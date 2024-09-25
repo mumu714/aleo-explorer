@@ -800,122 +800,95 @@ async def address_trending_route(request: Request):
         today_zero_time = current_data - int(time.time() - time.timezone) % 86400
         previous_timestamp = today_zero_time - 86400 * 30
         trending_time = today_zero_time
+        network_solutions = await db.get_coinbase_by_time(previous_timestamp)
     elif type == "1h":
         now_datetime_hour = current_data - (current_data % 3600)
         previous_timestamp = now_datetime_hour - 86400
         trending_time = now_datetime_hour
+        network_solutions = await db.get_solutions_by_time(previous_timestamp)
     else:
         raise HTTPException(status_code=400, detail="Error trending type")
-    solutions = await db.get_solutions_by_address_and_time(address, previous_timestamp)
+    address_solutions = await db.get_solutions_by_address_and_time(address, previous_timestamp)
     counts_data: list[dict[str, Any]] = []
-    power_data: list[dict[str, Any]] = []
+    reward_data: list[dict[str, Any]] = []
     speed_data: list[dict[str, Any]] = []
-    if len(solutions) > 0:
-        cur_solution = [solution for solution in solutions if solution["timestamp"] >= trending_time]
+    network_counts_data: list[dict[str, Any]] = []
+    network_reward_data: list[dict[str, Any]] = []
+    network_speed_data: list[dict[str, Any]] = []
+    timestamp_list: list[int] = []
+    if len(address_solutions) > 0:
         if type == "1d":
+            for row in network_solutions:
+                timestamp_list.append(row["timestamp"])
+                network_counts_data.append({
+                    "timestamp": row["timestamp"], "count": int(row["solution_count"])
+                }) 
+                network_reward_data.append({
+                    "timestamp": row["timestamp"], "reward": int(row["solution_reward"])
+                })
+                network_speed_data.append({
+                    "timestamp": row["timestamp"], "speed": float(row["hashrate"])
+                })
             for _ in range(0, 30):
-                counts_data.append({
-                    "timestamp": trending_time,
-                    "count": len(cur_solution)
-                })
-                power_data.append({
-                    "timestamp": trending_time,
-                    "power": sum(solution["reward"] for solution in cur_solution)
-                })
-                speed_data.append({
-                    "timestamp": trending_time,
-                    "speed": float(sum(solution["pre_proof_target"] for solution in cur_solution) / 86400)
-                })
-                cur_solution = [solution for solution in solutions if
+                address_cur_solution = [solution for solution in address_solutions if
                                 trending_time > solution["timestamp"] >= trending_time - 86400 * 1]
                 trending_time = trending_time - 86400 * 1
-        elif type == "1h":
-            for _ in range(0, 24):
+                if len(address_cur_solution) == 0 and (trending_time not in timestamp_list):
+                    continue
                 counts_data.append({
-                    "timestamp": trending_time,
-                    "count": len(cur_solution)
+                    "timestamp": trending_time, "count": len(address_cur_solution)
                 })
-                power_data.append({
+                reward_data.append({
                     "timestamp": trending_time,
-                    "power": sum(solution["reward"] for solution in cur_solution)
+                    "reward": sum(solution["reward"] for solution in address_cur_solution)
                 })
                 speed_data.append({
                     "timestamp": trending_time,
-                    "speed": float(sum(solution["pre_proof_target"] for solution in cur_solution) / 3600)
+                    "speed": float(sum(solution["pre_proof_target"] for solution in address_cur_solution) / 86400)
                 })
-                cur_solution = [solution for solution in solutions if
+        elif type == "1h":
+            for _ in range(0, 24):
+                network_solution = [solution for solution in network_solutions if
+                                trending_time > solution["timestamp"] >= trending_time - 3600 * 1]
+                address_cur_solution = [solution for solution in address_solutions if
                                 trending_time > solution["timestamp"] >= trending_time - 3600 * 1]
                 trending_time = trending_time - 3600 * 1
+                network_counts_data.append({
+                    "timestamp": trending_time, "count": len(network_solution)
+                })
+                network_reward_data.append({
+                    "timestamp": trending_time,
+                    "reward": sum(solution["reward"] for solution in network_solution)
+                })
+                network_speed_data.append({
+                    "timestamp": trending_time,
+                    "speed": float(sum(solution["pre_proof_target"] for solution in network_solution) / 3600)
+                })
+                counts_data.append({
+                    "timestamp": trending_time,
+                    "count": len(address_cur_solution)
+                })
+                reward_data.append({
+                    "timestamp": trending_time,
+                    "reward": sum(solution["reward"] for solution in address_cur_solution)
+                })
+                speed_data.append({
+                    "timestamp": trending_time,
+                    "speed": float(sum(solution["pre_proof_target"] for solution in address_cur_solution) / 3600)
+                })
     ctx = {
         "address": address,
         "address_trunc": address[:14] + "..." + address[-6:],
-        "counts_data": counts_data,
-        "power_data": power_data,
-        "speed_data": speed_data,
-    }
-    return JSONResponse(ctx)
-
-
-async def baseline_trending_route(request: Request):
-    db: Database = request.app.state.db
-    type = request.query_params.get("type")
-    if type is None:
-        raise HTTPException(status_code=400, detail="Missing trending type")
-    current_data = int(time.time())
-    if type == "1d":
-        today_zero_time = current_data - int(time.time() - time.timezone) % 86400
-        previous_timestamp = today_zero_time - 86400 * 30
-        trending_time = today_zero_time
-    elif type == "1h":
-        now_datetime_hour = current_data - (current_data % 3600)
-        previous_timestamp = now_datetime_hour - 86400
-        trending_time = now_datetime_hour
-    else:
-        raise HTTPException(status_code=400, detail="Error trending type")
-    solutions = await db.get_solutions_by_time(previous_timestamp)
-    counts_data: list[dict[str, Any]] = []
-    power_data: list[dict[str, Any]] = []
-    speed_data: list[dict[str, Any]] = []
-    if len(solutions) > 0:
-        cur_solution = [solution for solution in solutions if solution["timestamp"] >= trending_time]
-        if type == "1d":
-            for _ in range(0, 30):
-                counts_data.append({
-                    "timestamp": trending_time,
-                    "count": len(cur_solution)
-                })
-                power_data.append({
-                    "timestamp": trending_time,
-                    "power": sum(solution["reward"] for solution in cur_solution)
-                })
-                speed_data.append({
-                    "timestamp": trending_time,
-                    "speed": float(sum(solution["pre_proof_target"] for solution in cur_solution) / 86400)
-                })
-                cur_solution = [solution for solution in solutions if
-                                trending_time > solution["timestamp"] >= trending_time - 86400 * 1]
-                trending_time = trending_time - 86400 * 1
-        elif type == "1h":
-            for _ in range(0, 24):
-                counts_data.append({
-                    "timestamp": trending_time,
-                    "count": len(cur_solution)
-                })
-                power_data.append({
-                    "timestamp": trending_time,
-                    "power": sum(solution["reward"] for solution in cur_solution)
-                })
-                speed_data.append({
-                    "timestamp": trending_time,
-                    "speed": float(sum(solution["pre_proof_target"] for solution in cur_solution) / 3600)
-                })
-                cur_solution = [solution for solution in solutions if
-                                trending_time > solution["timestamp"] >= trending_time - 3600 * 1]
-                trending_time = trending_time - 3600 * 1
-    ctx = {
-        "counts_data": counts_data,
-        "power_data": power_data,
-        "speed_data": speed_data,
+        "address_data": {
+            "counts_data": counts_data,
+            "reward_data": reward_data,
+            "speed_data": speed_data,
+        },
+        "network_data": {
+            "counts_data": network_counts_data,
+            "reward_data": network_reward_data,
+            "speed_data": network_speed_data,
+        }
     }
     return JSONResponse(ctx)
 

@@ -624,6 +624,24 @@ LIMIT 10
                     await self.message_callback(ExplorerMessage(ExplorerMessage.Type.DatabaseError, e))
                     raise
 
+    async def get_coinbase_by_time(self, time: int):
+        async with self.pool.connection() as conn:
+            async with conn.cursor() as cur:
+                try:
+                    await cur.execute("SELECT * FROM coinbase WHERE timestamp > %s ORDER BY timestamp DESC ", (time,))
+                    coinbase = await cur.fetchall()
+                    def transform(x: dict[str, Any]):
+                        return {
+                            "timestamp": x["timestamp"],
+                            "solution_count": x["solution_count"],
+                            "solution_reward": x["solution_reward"],
+                            "hashrate": x["hashrate"]
+                        }
+                    return list(map(lambda x: transform(x), coinbase))
+                except Exception as e:
+                    await self.message_callback(ExplorerMessage(ExplorerMessage.Type.DatabaseError, e))
+                    raise
+
     async def get_network_reward(self, interval: int) -> int:
         async with self.pool.connection() as conn:
             async with conn.cursor() as cur:

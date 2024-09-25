@@ -425,6 +425,9 @@ CREATE TABLE explorer.epoch_hashrate (
 CREATE TABLE explorer.coinbase (
     "timestamp" bigint NOT NULL,
     height bigint NOT NULL,
+    solution_count bigint DEFAULT 0 NOT NULL,
+    solution_reward numeric(40,0) NOT NULL,
+    hashrate numeric(40,10) NOT NULL,
     block_reward numeric(40,0) NOT NULL,
     reward numeric(40,0) NOT NULL
 );
