@@ -614,10 +614,12 @@ async def address_function_transaction_route(request: Request):
             offset = int(offset)
     except:
         raise HTTPException(status_code=400, detail="Invalid page")
-    transactions_count = await db.get_transition_count_by_address_and_function(address, function)
+    program_id, function_name = function.split('/')
+    transactions_count_list = await db.get_transition_count_by_address_program_id_function(address, program_id, function_name)
+    transactions_count = transactions_count_list["transition_count"]
     if offset < 0 or offset > transactions_count:
         raise HTTPException(status_code=400, detail="Invalid page")
-    transitions = await db.get_transition_by_address_and_function(address, function, offset, offset + limit)
+    transitions = await db.get_transition_by_address_program_id_function(address, program_id, function_name, offset, offset + limit)
     data: list[dict[str, Any]] = []
     for transition_data in transitions:
         transition = await db.get_transition(transition_data["transition_id"])

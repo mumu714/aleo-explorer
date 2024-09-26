@@ -465,7 +465,7 @@ LIMIT 10
                     functions: list[str] = []
                     transition_count = 0
                     await cur.execute(
-                        "SELECT array_agg(function_name) AS function_name_list, "
+                        "SELECT array_agg(program_id || '/' || function_name) AS function_name_list, "
                         "SUM(transition_count) AS total_transition_count "
                         "FROM address_transition_summary WHERE address = %s", (address,)
                     )
