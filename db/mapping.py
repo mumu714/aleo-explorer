@@ -217,7 +217,7 @@ class DatabaseMapping(DatabaseBase):
             raise
 
     async def initialize_builtin_mapping(self, mapping_id: str, program_id: str, mapping: str):
-        async with self.pool.connection() as conn:
+        async with self.write_pool.connection() as conn:
             async with conn.cursor() as cur:
                 try:
                     await cur.execute(

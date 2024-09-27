@@ -270,7 +270,7 @@ class DatabaseProgram(DatabaseBase):
                     raise
 
     async def store_program_leo_source_code(self, program_id: str, source_code: str):
-        async with self.pool.connection() as conn:
+        async with self.write_pool.connection() as conn:
             async with conn.cursor() as cur:
                 try:
                     await cur.execute(

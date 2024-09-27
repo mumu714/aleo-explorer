@@ -45,6 +45,8 @@ class DatabaseBase:
         self.redis_user = redis_user
         self.redis_password = redis_password
 
+        # Read-write separation
+        self.write_pool: AsyncConnectionPool[AsyncConnection[DictRow]]
         self.pool: AsyncConnectionPool[AsyncConnection[DictRow]]
         self.redis: Redis[str]
 
@@ -57,8 +59,20 @@ class DatabaseBase:
                     "row_factory": dict_row,
                     "autocommit": True,
                 },
-                max_size=100,
+                max_size=80,
             )
+
+            # write
+            self.write_pool = AsyncConnectionPool(
+                f"host={self.server} user={self.user} password={self.password} dbname={self.database} "
+                f"options=-csearch_path={self.schema} application_name=aleo-explorer-write-{os.environ.get('NETWORK', 'unknown')}",
+                kwargs={
+                    "row_factory": dict_row,
+                    "autocommit": True,
+                },
+                max_size=20,
+            )
+
             # noinspection PyArgumentList
             self.redis = Redis(host=self.redis_server, port=self.redis_port, db=self.redis_db, decode_responses=True)
         except Exception as e:

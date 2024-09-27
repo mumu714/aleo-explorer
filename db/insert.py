@@ -720,7 +720,7 @@ class DatabaseInsert(DatabaseBase):
                 await self._update_address_stats(transaction)
 
     async def save_builtin_program(self, program: Program):
-        async with self.pool.connection() as conn:
+        async with self.write_pool.connection() as conn:
             async with conn.cursor() as cur:
                 await self._save_program(cur, program, None, None)
 
@@ -1341,7 +1341,7 @@ class DatabaseInsert(DatabaseBase):
 
     @profile
     async def _save_block(self, block: Block):
-        async with self.pool.connection() as conn:
+        async with self.write_pool.connection() as conn:
             signal.pthread_sigmask(signal.SIG_BLOCK, {signal.SIGINT})
             async with conn.transaction():
                 async with conn.cursor() as cur:
@@ -1841,13 +1841,13 @@ class DatabaseInsert(DatabaseBase):
         await self._save_block(block)
 
     async def save_unconfirmed_transaction(self, transaction: Transaction):
-        async with self.pool.connection() as conn:
+        async with self.write_pool.connection() as conn:
             if isinstance(transaction, FeeTransaction):
                 raise RuntimeError("rejected transaction cannot be unconfirmed")
             await self._insert_transaction(conn, self.redis, transaction)
 
     async def save_feedback(self, contact: str, content: str):
-        async with self.pool.connection() as conn:
+        async with self.write_pool.connection() as conn:
             async with conn.cursor() as cur:
                 try:
                     await cur.execute("INSERT INTO feedback (contact, content) VALUES (%s, %s)", (contact, content))
@@ -1858,7 +1858,7 @@ class DatabaseInsert(DatabaseBase):
     async def save_hashrate(self):
         now = int(time.time())
         hashrate = await cast(DatabaseAddress, self).get_network_speed(900)
-        async with self.pool.connection() as conn:
+        async with self.write_pool.connection() as conn:
             async with conn.cursor() as cur:
                 try:
                     await cur.execute(
@@ -1871,7 +1871,7 @@ class DatabaseInsert(DatabaseBase):
                     raise
 
     async def save_epoch_hashrate(self, height: int, interval: int, timestamp: int):
-        async with self.pool.connection() as conn:
+        async with self.write_pool.connection() as conn:
             async with conn.cursor() as cur:
                 try:
                     hashrate = await cast(DatabaseAddress, self).get_network_epoch_speed(height, interval)
@@ -1885,7 +1885,7 @@ class DatabaseInsert(DatabaseBase):
                     raise
 
     async def _save_coinbase(self, timestamp: int, height: int, solution_count: int, solution_reward: int, hashrate: float, reward: int, block_reward: int):
-        async with self.pool.connection() as conn:
+        async with self.write_pool.connection() as conn:
             async with conn.cursor() as cur:
                 try:
                     await cur.execute(
@@ -1924,7 +1924,7 @@ class DatabaseInsert(DatabaseBase):
                     raise
 
     async def update_address_favorite(self, address: str, favorite_address: str, label: str) -> dict[str, Any]: 
-        async with self.pool.connection() as conn:
+        async with self.write_pool.connection() as conn:
             async with conn.cursor() as cur:
                 try:
                     await cur.execute("SELECT favorite FROM address WHERE address = %s", (address,))
@@ -1966,7 +1966,7 @@ class DatabaseInsert(DatabaseBase):
 
     # start_timestamp: 5min eg: 1722964800(2024-08-07 01:20:00) < 1722964875(block1 timestamp)
     async def update_hashrate(self, start_timestamp: int):
-        async with self.pool.connection() as conn:
+        async with self.write_pool.connection() as conn:
             async with conn.cursor() as cur:
                 try:
                     now = int(time.time())
@@ -2001,7 +2001,7 @@ class DatabaseInsert(DatabaseBase):
                     raise
 
     async def save_history_epoch_hashrate(self):
-        async with self.pool.connection() as conn:
+        async with self.write_pool.connection() as conn:
             async with conn.cursor() as cur:
                 try:
                     last_height = await cast(DatabaseBlock, self).get_latest_height()
