@@ -429,6 +429,7 @@ CREATE TABLE explorer.coinbase (
     solution_reward numeric(40,0) NOT NULL,
     hashrate numeric(40,10) NOT NULL,
     block_reward numeric(40,0) NOT NULL,
+    puzzle_rewards_1M numeric(40,10) NOT NULL,
     reward numeric(40,0) NOT NULL
 );
 

@@ -115,6 +115,23 @@ async def coinbase_route(request: Request):
     }
     return JSONResponse(ctx)
 
+async def puzzle_rewards_1M_route(request: Request):
+    db: Database = request.app.state.db
+    total_blocks = await db.get_latest_height()
+    if not total_blocks:
+        raise HTTPException(status_code=550, detail="No blocks found")
+    all_data = await db.get_puzzle_rewards_1M()
+    data: list[dict[str, Any]] = []
+    for one_day_data in all_data:
+        data.append({
+            "reward": float(one_day_data["puzzle_rewards_1m"]),
+            "timestamp": one_day_data["timestamp"]
+        })
+    ctx = {
+        "puzzle_rewards_1M": data,
+    }
+    return JSONResponse(ctx)
+
 async def proof_target_route(request: Request):
     db: Database = request.app.state.db
     type = request.path_params["type"]

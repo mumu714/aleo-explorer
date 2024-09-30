@@ -365,7 +365,7 @@ LIMIT 10
                     await self.message_callback(ExplorerMessage(ExplorerMessage.Type.DatabaseError, e))
                     raise
 
-    async def get_network_epoch_speed(self, height: int, interval: int) -> float:
+    async def get_network_interval_speed(self, interval_start: int, interval_end: int) -> float:
         async with self.pool.connection() as conn:
             async with conn.cursor() as cur:
                 try:
@@ -373,8 +373,8 @@ LIMIT 10
                         "SELECT b.height FROM solution s "
                         "JOIN puzzle_solution ps ON s.puzzle_solution_id = ps.id "
                         "JOIN block b ON ps.block_id = b.id "
-                        "WHERE height > %s",
-                        (height,)
+                        "WHERE timestamp >= %s AND timestamp < %s",
+                        (interval_start, interval_end)
                     )
                     partial_solutions = await cur.fetchall()
                     heights = list(map(lambda x: x['height'], partial_solutions))
@@ -387,7 +387,7 @@ LIMIT 10
                     total_solutions = 0
                     for height in heights:
                         total_solutions += ref_proof_target_dict[height - 1]
-                    return total_solutions / interval
+                    return total_solutions / (interval_end - interval_start)
                 except Exception as e:
                     await self.message_callback(ExplorerMessage(ExplorerMessage.Type.DatabaseError, e))
                     raise
@@ -618,6 +618,17 @@ LIMIT 10
             async with conn.cursor() as cur:
                 try:
                     await cur.execute("SELECT * FROM coinbase ORDER BY timestamp")
+                    coinbase = await cur.fetchall()
+                    return coinbase
+                except Exception as e:
+                    await self.message_callback(ExplorerMessage(ExplorerMessage.Type.DatabaseError, e))
+                    raise
+    
+    async def get_puzzle_rewards_1M(self):
+        async with self.pool.connection() as conn:
+            async with conn.cursor() as cur:
+                try:
+                    await cur.execute("SELECT timestamp, puzzle_rewards_1m FROM coinbase ORDER BY timestamp")
                     coinbase = await cur.fetchall()
                     return coinbase
                 except Exception as e:
