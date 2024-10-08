@@ -148,6 +148,7 @@ routes = [
     Route("/bonds", address_bonds_transaction_route),
     Route("/transfer", address_transfer_transaction_route),
     Route("/address_trending", address_trending_route),
+    Route("/address_solutions_trending", address_solutions_trending),
     Route("/address_favorite", address_favorite_route),
     Route("/favorites_update", favorites_update_route, methods=["POST"]),
     # Other

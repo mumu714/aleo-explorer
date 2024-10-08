@@ -192,6 +192,24 @@ class DatabaseAddress(DatabaseBase):
                     await self.message_callback(ExplorerMessage(ExplorerMessage.Type.DatabaseError, e))
                     raise
 
+    async def get_solutions_reward_by_address_and_time(self, address: str, timestamp: int) -> list[int]:
+        async with self.pool.connection() as conn:
+            async with conn.cursor() as cur:
+                try:
+                    await cur.execute(
+                        "SELECT reward FROM solution s "
+                        "JOIN puzzle_solution ps ON ps.id = s.puzzle_solution_id "
+                        "JOIN block b ON b.id = ps.block_id "
+                        "WHERE s.address = %s AND b.timestamp > %s "
+                        "ORDER By reward ",
+                        (address, timestamp)
+                    )
+                    prover_solutions = await cur.fetchall()
+                    return list(map(lambda x: x["reward"], prover_solutions))
+                except Exception as e:
+                    await self.message_callback(ExplorerMessage(ExplorerMessage.Type.DatabaseError, e))
+                    raise
+
     async def get_address_recent_transitions(self, address: str) -> list[dict[str, Any]]:
         async with self.pool.connection() as conn:
             async with conn.cursor() as cur:
@@ -628,7 +646,7 @@ LIMIT 10
         async with self.pool.connection() as conn:
             async with conn.cursor() as cur:
                 try:
-                    await cur.execute("SELECT timestamp, puzzle_rewards_1m FROM coinbase ORDER BY timestamp")
+                    await cur.execute("SELECT timestamp, puzzle_rewards_1m FROM coinbase_utc ORDER BY timestamp")
                     coinbase = await cur.fetchall()
                     return coinbase
                 except Exception as e:
@@ -639,7 +657,7 @@ LIMIT 10
         async with self.pool.connection() as conn:
             async with conn.cursor() as cur:
                 try:
-                    await cur.execute("SELECT * FROM coinbase WHERE timestamp > %s ORDER BY timestamp DESC ", (time,))
+                    await cur.execute("SELECT * FROM coinbase WHERE timestamp >= %s ORDER BY timestamp DESC ", (time,))
                     coinbase = await cur.fetchall()
                     def transform(x: dict[str, Any]):
                         return {

@@ -895,6 +895,48 @@ async def address_trending_route(request: Request):
     return JSONResponse(ctx)
 
 
+async def address_solutions_trending(request: Request):
+    db: Database = request.app.state.db
+    address = request.query_params.get("a")
+    type = request.query_params.get("type")
+    if address is None:
+        raise HTTPException(status_code=400, detail="Missing address")
+    if type is None:
+        raise HTTPException(status_code=400, detail="Missing trending type")
+    current_data = int(time.time())
+    if type == "1d":
+        previous_timestamp = current_data - 86400
+    elif type == "7d":
+        previous_timestamp = current_data - 86400 * 7
+    else:
+        raise HTTPException(status_code=400, detail="Error trending type")
+    address_solutions_reward = await db.get_solutions_reward_by_address_and_time(address, previous_timestamp)
+    minReward = min(address_solutions_reward)
+    maxReward = max(address_solutions_reward)
+    step = (maxReward - minReward) / 50
+    solution_reward_count: list[dict[str, Any]] = []
+    count = 0
+    start_interval = minReward
+    for reward in address_solutions_reward:
+        if reward >= start_interval and reward < start_interval + step:
+            count += 1
+        else:
+            solution_reward_count.append({
+                "start_interval": start_interval,
+                "end_interval": start_interval + step,
+                "count": count
+            })
+            start_interval = start_interval + step
+    ctx = {
+        "address": address,
+        "address_trunc": address[:14] + "..." + address[-6:],
+        "min_reward": minReward,
+        "max_reward": maxReward,
+        "reward_count": solution_reward_count
+    }
+    return JSONResponse(ctx)
+
+
 async def estimate_fee_route(request: Request):
     db: Database = request.app.state.db
     function = request.query_params.get("function")

@@ -101,7 +101,7 @@ class Explorer:
             # _ = asyncio.create_task(api.run())
             asyncio.create_task(rpc.run())
             self.scheduler.add_job(self.add_hashrate, 'cron', minute="*/5", id='job1')  # type: ignore
-            self.scheduler.add_job(self.add_coinbase, 'cron', hour="*/12", id='job3')  # type: ignore
+            self.scheduler.add_job(self.add_coinbase, 'cron', hour="*/8", id='job3')  # type: ignore
             self.scheduler.add_job(self.update_24H_reward_data, 'cron', hour="*/1", id='job4')  # type: ignore
             self.scheduler.add_job(self.check_data_sync, 'cron', minute="*/10", id='job5')  # type: ignore
             while True:
@@ -167,6 +167,7 @@ class Explorer:
 
     async def add_coinbase(self):
         await self.db.save_one_day_coinbase()
+        await self.db.save_one_day_coinbase("utc")
 
     async def update_24H_reward_data(self):
         await self.db.save_24H_reward_data()

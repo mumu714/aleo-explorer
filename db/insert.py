@@ -1885,28 +1885,42 @@ class DatabaseInsert(DatabaseBase):
                     raise
 
     async def _save_coinbase(self, timestamp: int, height: int, solution_count: int, solution_reward: int, hashrate: float, 
-                             reward: int, block_reward: int, puzzle_rewards_1M: float):
+                             reward: int, block_reward: int, puzzle_rewards_1M: float, flag: str | None = None):
         async with self.write_pool.connection() as conn:
             async with conn.cursor() as cur:
                 try:
-                    await cur.execute(
-                        "INSERT INTO coinbase "
-                        "(timestamp, height, solution_count, solution_reward, hashrate, block_reward, reward, puzzle_rewards_1M) "
-                        "VALUES (%s, %s, %s, %s, %s, %s, %s, %s) ON CONFLICT (timestamp) DO UPDATE SET "
-                        "height = %s, solution_count = %s, solution_reward = %s, hashrate = %s, block_reward = %s, "
-                        "reward = %s, puzzle_rewards_1M = %s",
-                        (timestamp, height, solution_count, solution_reward, hashrate, block_reward, reward, puzzle_rewards_1M,
-                         height, solution_count, solution_reward, hashrate, block_reward, reward, puzzle_rewards_1M)
-                    )
+                    if flag is None:
+                        await cur.execute(
+                            "INSERT INTO coinbase "
+                            "(timestamp, height, solution_count, solution_reward, hashrate, block_reward, reward, puzzle_rewards_1M) "
+                            "VALUES (%s, %s, %s, %s, %s, %s, %s, %s) ON CONFLICT (timestamp) DO UPDATE SET "
+                            "height = %s, solution_count = %s, solution_reward = %s, hashrate = %s, block_reward = %s, "
+                            "reward = %s, puzzle_rewards_1M = %s",
+                            (timestamp, height, solution_count, solution_reward, hashrate, block_reward, reward, puzzle_rewards_1M,
+                            height, solution_count, solution_reward, hashrate, block_reward, reward, puzzle_rewards_1M)
+                        )
+                    else:
+                        await cur.execute(
+                            "INSERT INTO coinbase_utc "
+                            "(timestamp, height, solution_count, solution_reward, hashrate, block_reward, reward, puzzle_rewards_1M) "
+                            "VALUES (%s, %s, %s, %s, %s, %s, %s, %s) ON CONFLICT (timestamp) DO UPDATE SET "
+                            "height = %s, solution_count = %s, solution_reward = %s, hashrate = %s, block_reward = %s, "
+                            "reward = %s, puzzle_rewards_1M = %s",
+                            (timestamp, height, solution_count, solution_reward, hashrate, block_reward, reward, puzzle_rewards_1M,
+                            height, solution_count, solution_reward, hashrate, block_reward, reward, puzzle_rewards_1M)
+                        )
                 except Exception as e:
                     await self.message_callback(ExplorerMessage(ExplorerMessage.Type.DatabaseError, e))
                     raise
 
-    async def save_one_day_coinbase(self):
+    async def save_one_day_coinbase(self, flag: str | None = None):
         async with self.pool.connection() as conn:
             async with conn.cursor() as cur:
                 try:
-                    today_zero_time = int(time.time()) - int(time.time() - time.timezone) % 86400
+                    if flag is None:
+                        today_zero_time = int(time.time()) - int(time.time() - time.timezone) % 86400
+                    else:
+                        today_zero_time = int(time.time()) - int(time.time() - time.timezone) % 86400 + 60*60*8
                     previous_timestamp = today_zero_time - 86400 * 1
                     trending_time = today_zero_time
                     await cur.execute(
@@ -1923,7 +1937,7 @@ class DatabaseInsert(DatabaseBase):
                     puzzle_rewards = sum(block["coinbase_reward"] * 2 // 3 for block in all_blocks)
                     puzzle_rewards_1M = (float(puzzle_rewards) / float(hashrate_24h)) * 1_000_000 if float(hashrate_24h) else 0
                     await self._save_coinbase(previous_timestamp, all_blocks[0]["height"], solution_count, solution_reward, hashrate_24h, 
-                                              coinbase_rewards, block_reward, puzzle_rewards_1M)
+                                              coinbase_rewards, block_reward, puzzle_rewards_1M, flag)
                 except Exception as e:
                     await self.message_callback(ExplorerMessage(ExplorerMessage.Type.DatabaseError, e))
                     raise

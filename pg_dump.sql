@@ -435,6 +435,21 @@ CREATE TABLE explorer.coinbase (
 
 
 --
+-- Name: coinbase_utc; Type: TABLE; Schema: explorer; Owner: -
+--
+
+CREATE TABLE explorer.coinbase_utc (
+    "timestamp" bigint NOT NULL,
+    height bigint NOT NULL,
+    solution_count bigint DEFAULT 0 NOT NULL,
+    solution_reward numeric(40,0) NOT NULL,
+    hashrate numeric(40,10) NOT NULL,
+    block_reward numeric(40,0) NOT NULL,
+    puzzle_rewards_1M numeric(40,10) NOT NULL,
+    reward numeric(40,0) NOT NULL
+);
+
+--
 -- Name: epoch; Type: TABLE; Schema: explorer; Owner: -
 --
 
@@ -2879,6 +2894,15 @@ ALTER TABLE ONLY explorer.coinbase
 
 
 --
+-- Name: coinbase_utc coinbase_utc_pk; Type: CONSTRAINT; Schema: explorer; Owner: -
+--
+
+ALTER TABLE ONLY explorer.coinbase_utc
+    ADD CONSTRAINT coinbase_utc_pk PRIMARY KEY (timestamp);
+
+
+
+--
 -- Name: epoch epoch_pk; Type: CONSTRAINT; Schema: explorer; Owner: -
 --
 
@@ -3195,6 +3219,14 @@ CREATE INDEX epoch_hashrate_timestamp_index ON explorer.epoch_hashrate USING btr
 
 
 CREATE UNIQUE INDEX coinbase_timestamp_index ON explorer.coinbase USING btree ("timestamp");
+
+
+--
+-- Name: coinbase_utc_timestamp_index; Type: INDEX; Schema: explorer; Owner: -
+--
+
+
+CREATE UNIQUE INDEX coinbase_utc_timestamp_index ON explorer.coinbase_utc USING btree ("timestamp");
 
 
 --
