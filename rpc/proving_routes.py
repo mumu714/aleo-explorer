@@ -808,6 +808,11 @@ async def address_trending_route(request: Request):
         previous_timestamp = now_datetime_hour - 86400
         trending_time = now_datetime_hour
         network_solutions = await db.get_solutions_by_time(previous_timestamp)
+    elif type == "all":
+        today_zero_time = current_data - int(time.time() - time.timezone) % 86400
+        previous_timestamp = 0
+        trending_time = today_zero_time
+        network_solutions = await db.get_coinbase_by_time(previous_timestamp)
     else:
         raise HTTPException(status_code=400, detail="Error trending type")
     address_solutions = await db.get_solutions_by_address_and_time(address, previous_timestamp)
@@ -819,6 +824,33 @@ async def address_trending_route(request: Request):
     network_speed_data: list[dict[str, Any]] = []
     timestamp_list: list[int] = []
     if len(address_solutions) > 0:
+        if type == "all":
+            for row in network_solutions:
+                trending_time = row["timestamp"]
+                network_counts_data.append({
+                    "timestamp": trending_time, "count": int(row["solution_count"])
+                }) 
+                network_reward_data.append({
+                    "timestamp": trending_time, "reward": int(row["solution_reward"])
+                })
+                network_speed_data.append({
+                    "timestamp": trending_time, "speed": float(row["hashrate"])
+                })
+                address_cur_solution = [solution for solution in address_solutions if
+                                trending_time + 86440 > solution["timestamp"] >= trending_time ]
+                if len(address_cur_solution) == 0 and (trending_time not in timestamp_list):
+                    continue
+                counts_data.append({
+                    "timestamp": trending_time, "count": len(address_cur_solution)
+                })
+                reward_data.append({
+                    "timestamp": trending_time,
+                    "reward": sum(solution["reward"] for solution in address_cur_solution)
+                })
+                speed_data.append({
+                    "timestamp": trending_time,
+                    "speed": float(sum(solution["pre_proof_target"] for solution in address_cur_solution) / 86400)
+                })
         if type == "1d":
             for row in network_solutions:
                 timestamp_list.append(row["timestamp"])
