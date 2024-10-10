@@ -132,7 +132,7 @@ class DatabaseTransaction(DatabaseBase):
                     await cur.execute(
                         """
 WITH ats AS
-    (SELECT DISTINCT transition_id, type 
+    (SELECT DISTINCT transition_id, height, type 
      FROM address_transition
      WHERE address = %s
      ORDER BY height DESC
@@ -173,7 +173,7 @@ ORDER BY height DESC
                     await cur.execute(
                         """
 WITH ats AS
-    (SELECT DISTINCT transition_id, type
+    (SELECT DISTINCT transition_id, height, type
      FROM address_transition at
      WHERE address = %s AND function_name = %s
      ORDER BY heigth DESC
@@ -214,7 +214,7 @@ ORDER BY height DESC
                     await cur.execute(
                         """
 WITH ats AS
-    (SELECT DISTINCT transition_id, type
+    (SELECT DISTINCT transition_id, height, type
      FROM address_transition at
      WHERE address = %s AND program_id = %s AND function_name = %s
      ORDER BY height DESC
@@ -255,7 +255,7 @@ ORDER BY height DESC
                     await cur.execute(
                         """
 WITH ats AS
-    (SELECT DISTINCT transition_id, type 
+    (SELECT DISTINCT transition_id, height, type 
      FROM address_transition at
      WHERE address = %s AND program_id = %s AND function_name = %s AND type = %s 
      ORDER BY heigth DESC
@@ -296,7 +296,7 @@ ORDER BY height DESC
                     await cur.execute(
                         """
 WITH ats AS
-    (SELECT DISTINCT transition_id, type 
+    (SELECT DISTINCT transition_id, height, type 
      FROM address_transition at
      WHERE address = %s AND program_id = %s AND function_name = ANY(%s::text[])
      ORDER BY height DESC
