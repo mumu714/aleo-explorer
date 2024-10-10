@@ -650,6 +650,18 @@ class DatabaseInsert(DatabaseBase):
                     "FROM transaction tx WHERE tx.id = ts.transaction_id AND tx.transaction_id = %s",
                     (confirmed_transaction_db_id, str(transaction.id))
                 )
+                await cur.execute(
+                    "SELECT height, timestamp FROM confirmed_transaction ct JOIN block b ON b.id = ct.block_id "
+                    "WHERE ct.id = %s ",(confirmed_transaction_db_id,)
+                )
+                if (res := await cur.fetchone()) is None:
+                    raise RuntimeError("database inconsistent")
+                await cur.execute(
+                    "UPDATE address_transition ats SET height = %s, timestamp = %s "
+                    "FROM transition ts, transaction tx WHERE ats.transition_id = ts.id "
+                    "AND tx.id = ts.transaction_id AND tx.transaction_id = %s",
+                    (res["height"], res["timestamp"], str(transaction.id))
+                )
                 reject_reasons = cast(list[Optional[str]], reject_reasons)
                 ct_index = cast(int, ct_index)
                 if isinstance(confirmed_transaction, AcceptedDeploy):

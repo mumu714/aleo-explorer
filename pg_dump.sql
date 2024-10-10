@@ -470,6 +470,8 @@ CREATE TABLE explorer.address_transition (
     transition_id integer NOT NULL,
     program_id text NOT NULL,
     function_name text NOT NULL,
+    height bigint,
+    "timestamp" bigint,
     type text
 );
 
@@ -3256,6 +3258,20 @@ CREATE INDEX address_transition_address_index ON explorer.address_transition USI
 --
 
 CREATE INDEX address_transition_transition_id_index ON explorer.address_transition USING btree (transition_id);
+
+
+--
+-- Name: address_transition_height_index; Type: INDEX; Schema: explorer; Owner: -
+--
+
+CREATE INDEX address_transition_height_index ON explorer.address_transition USING btree (height);
+
+
+--
+-- Name: address_transition_timestamp_index; Type: INDEX; Schema: explorer; Owner: -
+--
+
+CREATE INDEX address_transition_timestamp_index ON explorer.address_transition USING btree ("timestamp");
 
 
 --

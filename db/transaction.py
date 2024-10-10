@@ -135,7 +135,7 @@ WITH ats AS
     (SELECT DISTINCT transition_id, type 
      FROM address_transition
      WHERE address = %s
-     ORDER BY transition_id DESC
+     ORDER BY height DESC
      LIMIT %s OFFSET %s)
 SELECT DISTINCT ts.transition_id,
                 b.height,
@@ -176,7 +176,7 @@ WITH ats AS
     (SELECT DISTINCT transition_id, type
      FROM address_transition at
      WHERE address = %s AND function_name = %s
-     ORDER BY transition_id DESC
+     ORDER BY heigth DESC
      LIMIT %s OFFSET %s)
 SELECT DISTINCT ts.transition_id,
                 b.height,
@@ -217,7 +217,7 @@ WITH ats AS
     (SELECT DISTINCT transition_id, type
      FROM address_transition at
      WHERE address = %s AND program_id = %s AND function_name = %s
-     ORDER BY transition_id DESC
+     ORDER BY height DESC
      LIMIT %s OFFSET %s)
 SELECT DISTINCT ts.transition_id,
                 b.height,
@@ -258,7 +258,7 @@ WITH ats AS
     (SELECT DISTINCT transition_id, type 
      FROM address_transition at
      WHERE address = %s AND program_id = %s AND function_name = %s AND type = %s 
-     ORDER BY transition_id DESC
+     ORDER BY heigth DESC
      LIMIT %s OFFSET %s)
 SELECT DISTINCT ts.transition_id,
                 b.height,
@@ -299,7 +299,7 @@ WITH ats AS
     (SELECT DISTINCT transition_id, type 
      FROM address_transition at
      WHERE address = %s AND program_id = %s AND function_name = ANY(%s::text[])
-     ORDER BY transition_id DESC
+     ORDER BY height DESC
      LIMIT %s OFFSET %s)
 SELECT DISTINCT ts.transition_id,
                 b.height,
