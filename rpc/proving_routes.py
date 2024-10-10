@@ -825,6 +825,32 @@ async def address_trending_route(request: Request):
     timestamp_list: list[int] = []
     if len(address_solutions) > 0:
         if type == "all":
+            toady_solutions = await db.get_solutions_by_time(trending_time)
+            toady_address_solutions = [solution for solution in address_solutions if solution["timestamp"] >= trending_time ]
+            interval = current_data - trending_time
+            network_counts_data.append({
+                "timestamp": trending_time, "count": len(toady_solutions)
+            })
+            network_reward_data.append({
+                "timestamp": trending_time,
+                "reward": sum(solution["reward"] for solution in toady_solutions)
+            })
+            network_speed_data.append({
+                "timestamp": trending_time,
+                "speed": float(sum(solution["pre_proof_target"] for solution in toady_solutions) / interval)
+            })
+            counts_data.append({
+                "timestamp": trending_time,
+                "count": len(toady_address_solutions)
+            })
+            reward_data.append({
+                "timestamp": trending_time,
+                "reward": sum(solution["reward"] for solution in toady_address_solutions)
+            })
+            speed_data.append({
+                "timestamp": trending_time,
+                "speed": float(sum(solution["pre_proof_target"] for solution in toady_address_solutions) / interval)
+            })
             for row in network_solutions:
                 trending_time = row["timestamp"]
                 network_counts_data.append({
@@ -837,7 +863,7 @@ async def address_trending_route(request: Request):
                     "timestamp": trending_time, "speed": float(row["hashrate"])
                 })
                 address_cur_solution = [solution for solution in address_solutions if
-                                trending_time + 86440 > solution["timestamp"] >= trending_time ]
+                                trending_time + 86400 > solution["timestamp"] >= trending_time ]
                 if len(address_cur_solution) == 0 and (trending_time not in timestamp_list):
                     continue
                 counts_data.append({
