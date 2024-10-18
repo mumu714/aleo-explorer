@@ -659,14 +659,20 @@ LIMIT 10
                 try:
                     await cur.execute("SELECT * FROM coinbase WHERE timestamp >= %s ORDER BY timestamp DESC ", (time,))
                     coinbase = await cur.fetchall()
-                    def transform(x: dict[str, Any]):
-                        return {
-                            "timestamp": x["timestamp"],
-                            "solution_count": x["solution_count"],
-                            "solution_reward": x["solution_reward"],
-                            "hashrate": x["hashrate"]
-                        }
-                    return list(map(lambda x: transform(x), coinbase))
+                    return coinbase
+                except Exception as e:
+                    await self.message_callback(ExplorerMessage(ExplorerMessage.Type.DatabaseError, e))
+                    raise
+
+    async def get_prover_trend_by_address_and_time(self, address: str, time: int):
+        async with self.pool.connection() as conn:
+            async with conn.cursor() as cur:
+                try:
+                    await cur.execute(
+                        "SELECT * FROM prover_daily_trend WHERE timestamp >= %s AND address = %s "
+                        "ORDER BY timestamp DESC ", (time,address))
+                    res = await cur.fetchall()
+                    return res
                 except Exception as e:
                     await self.message_callback(ExplorerMessage(ExplorerMessage.Type.DatabaseError, e))
                     raise

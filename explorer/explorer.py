@@ -168,6 +168,8 @@ class Explorer:
     async def add_coinbase(self):
         await self.db.save_one_day_coinbase()
         await self.db.save_one_day_coinbase("utc")
+        await self.db.save_one_day_prover_trend()
+        await self.db.save_one_day_validator_trend()
 
     async def update_24H_reward_data(self):
         await self.db.save_24H_reward_data()

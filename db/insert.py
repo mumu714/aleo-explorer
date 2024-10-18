@@ -1954,6 +1954,83 @@ class DatabaseInsert(DatabaseBase):
                     await self.message_callback(ExplorerMessage(ExplorerMessage.Type.DatabaseError, e))
                     raise
 
+    async def save_one_day_prover_trend(self):
+        async with self.pool.connection() as conn:
+            async with conn.cursor() as cur:
+                try:
+                    today_zero_time = int(time.time()) - int(time.time() - time.timezone) % 86400
+                    previous_timestamp = today_zero_time - 86400 * 1
+                    trending_time = today_zero_time
+                    await cur.execute(
+                        "SELECT s.address, b.height, b.timestamp, reward FROM solution s "
+                        "JOIN puzzle_solution ps ON ps.id = s.puzzle_solution_id "
+                        "JOIN block b ON b.id = ps.block_id "
+                        "WHERE b.timestamp >= %s AND b.timestamp < %s "
+                        "ORDER BY b.timestamp DESC ",
+                        (previous_timestamp, trending_time)
+                    )
+                    prover_solutions = await cur.fetchall()
+                    heights = list(map(lambda x: x['height'], prover_solutions))
+                    ref_heights = list(map(lambda x: x - 1, set(heights)))
+                    await cur.execute(
+                        "SELECT height, proof_target FROM block WHERE height = ANY(%s::bigint[])", (ref_heights,)
+                    )
+                    ref_proof_targets = await cur.fetchall()
+                    ref_proof_target_dict = dict(map(lambda x: (x['height'], x['proof_target']), ref_proof_targets))
+                    def transform(x: dict[str, Any]):
+                        return {
+                            "address": x["address"],
+                            "height": x["height"],
+                            "timestamp": x["timestamp"],
+                            "reward": x["reward"],
+                            "pre_proof_target": ref_proof_target_dict[x["height"]-1]
+                        }
+                    address_solutions = list(map(lambda x: transform(x), prover_solutions))
+                    addresses = list(set(map(lambda x: x["address"], prover_solutions)))
+                    for address in addresses:
+                        address_cur_solution = [solution for solution in address_solutions if solution["address"] == address ]
+                        solution_count = len(address_cur_solution)
+                        solution_reward = sum(solution["reward"] for solution in address_cur_solution)
+                        hashrate = float(sum(solution["pre_proof_target"] for solution in address_cur_solution) / 86400)
+                        await cur.execute(
+                            "INSERT INTO prover_daily_trend (address, timestamp, solution_count, solution_reward, hashrate) "
+                            "VALUES (%s, %s, %s, %s, %s) ON CONFLICT (address, timestamp) "
+                            "DO UPDATE SET solution_count = %s, solution_reward = %s, hashrate = %s",
+                            (address, previous_timestamp, solution_count, solution_reward, hashrate, solution_count, solution_reward, hashrate)
+                        )
+                except Exception as e:
+                    await self.message_callback(ExplorerMessage(ExplorerMessage.Type.DatabaseError, e))
+                    raise
+
+    async def save_one_day_validator_trend(self):
+        async with self.pool.connection() as conn:
+            async with conn.cursor() as cur:
+                try:
+                    today_zero_time = int(time.time()) - int(time.time() - time.timezone) % 86400
+                    previous_timestamp = today_zero_time - 86400 * 1
+                    trending_time = today_zero_time
+                    await cur.execute(
+                        "SELECT address, committee_stake, stake_reward, delegate_reward FROM address_stake_reward "
+                        "WHERE timestamp >= %s AND timestamp < %s "
+                        "ORDER BY timestamp DESC ",
+                        (previous_timestamp, trending_time)
+                    )
+                    validator_trend = await cur.fetchall()
+                    addresses = list(set(map(lambda x: x["address"], validator_trend)))
+                    for address in addresses:
+                        cur_trend = [trend for trend in validator_trend if trend["address"] == address ]
+                        stake = int(cur_trend[0]["committee_stake"]) if cur_trend else 0
+                        reward = int(sum(trend["stake_reward"]+trend["delegate_reward"]  for trend in cur_trend))
+                        await cur.execute(
+                            "INSERT INTO validator_daily_trend (address, timestamp, stake, reward) "
+                            "VALUES (%s, %s, %s, %s) ON CONFLICT (address, timestamp) "
+                            "DO UPDATE SET stake = %s, reward = %s",
+                            (address, previous_timestamp, stake, reward, stake, reward)
+                        )
+                except Exception as e:
+                    await self.message_callback(ExplorerMessage(ExplorerMessage.Type.DatabaseError, e))
+                    raise
+
     async def update_address_favorite(self, address: str, favorite_address: str, label: str) -> dict[str, Any]: 
         async with self.write_pool.connection() as conn:
             async with conn.cursor() as cur:

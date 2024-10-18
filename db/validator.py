@@ -256,6 +256,19 @@ class DatabaseValidator(DatabaseBase):
                     await self.message_callback(ExplorerMessage(ExplorerMessage.Type.DatabaseError, e))
                     raise
 
+    async def get_validator_daily_trend_by_address_and_time(self, address: str, time: int):
+        async with self.pool.connection() as conn:
+            async with conn.cursor() as cur:
+                try:
+                    await cur.execute(
+                        "SELECT * FROM validator_daily_trend WHERE timestamp >= %s AND address = %s "
+                        "ORDER BY timestamp DESC ", (time,address))
+                    res = await cur.fetchall()
+                    return res
+                except Exception as e:
+                    await self.message_callback(ExplorerMessage(ExplorerMessage.Type.DatabaseError, e))
+                    raise
+
 
     async def get_validator_bonds(self, address: str) -> list[dict[str, Any]]:
         try:

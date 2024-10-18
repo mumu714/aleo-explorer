@@ -93,7 +93,7 @@ async def block_route(request: Request):
                 "base_fee": base_fee - burnt_fee,
                 "priority_fee": priority_fee,
                 "burnt_fee": burnt_fee,
-                "program_id": tx.deployment.program.id,
+                "program_id": str(tx.deployment.program.id),
             }
             txs.append(t)
         elif isinstance(ct, AcceptedExecute):

@@ -462,6 +462,31 @@ CREATE TABLE explorer.epoch (
 
 
 --
+-- Name: prover_daily_trend; Type: TABLE; Schema: explorer; Owner: -
+--
+
+CREATE TABLE explorer.prover_daily_trend (
+    address text NOT NULL,
+    "timestamp" bigint NOT NULL,
+    solution_count bigint DEFAULT 0 NOT NULL,
+    solution_reward numeric(40,0) DEFAULT 0 NOT NULL,
+    hashrate numeric(40,10) DEFAULT 0 NOT NULL
+);
+
+
+--
+-- Name: validator_daily_trend; Type: TABLE; Schema: explorer; Owner: -
+--
+
+CREATE TABLE explorer.validator_daily_trend (
+    address text NOT NULL,
+    "timestamp" bigint NOT NULL,
+    stake numeric(40,0) DEFAULT 0 NOT NULL,
+    reward numeric(40,0) DEFAULT 0 NOT NULL
+);
+
+
+--
 -- Name: address_transition; Type: TABLE; Schema: explorer; Owner: -
 --
 
@@ -2921,6 +2946,22 @@ ALTER TABLE ONLY explorer.address
 
 
 --
+-- Name: prover_daily_trend prover_daily_trend_pk; Type: CONSTRAINT; Schema: explorer; Owner: -
+--
+
+ALTER TABLE ONLY explorer.prover_daily_trend
+    ADD CONSTRAINT prover_daily_trend_pk PRIMARY KEY (address, "timestamp");
+
+
+--
+-- Name: validator_daily_trend validator_daily_trend_pk; Type: CONSTRAINT; Schema: explorer; Owner: -
+--
+
+ALTER TABLE ONLY explorer.validator_daily_trend
+    ADD CONSTRAINT validator_daily_trend_pk PRIMARY KEY (address, "timestamp");
+
+
+--
 -- Name: address_transition_summary address_transition_summary_pk; Type: CONSTRAINT; Schema: explorer; Owner: -
 --
 
@@ -3244,6 +3285,34 @@ CREATE UNIQUE INDEX epoch_epoch_num_index ON explorer.epoch USING btree (epoch_n
 --
 
 CREATE INDEX address_address_index ON explorer.address USING btree (address text_pattern_ops);
+
+
+--
+-- Name: prover_daily_trend_address_index; Type: INDEX; Schema: explorer; Owner: -
+--
+
+CREATE INDEX prover_daily_trend_address_index ON explorer.prover_daily_trend USING btree (address text_pattern_ops);
+
+
+--
+-- Name: prover_daily_trend_timestamp_index; Type: INDEX; Schema: explorer; Owner: -
+--
+
+CREATE INDEX prover_daily_trend_timestamp_index ON explorer.prover_daily_trend USING btree ("timestamp");
+
+
+--
+-- Name: validator_daily_trend_address_index; Type: INDEX; Schema: explorer; Owner: -
+--
+
+CREATE INDEX validator_daily_trend_address_index ON explorer.validator_daily_trend USING btree (address text_pattern_ops);
+
+
+--
+-- Name: validator_daily_trend_timestamp_index; Type: INDEX; Schema: explorer; Owner: -
+--
+
+CREATE INDEX validator_daily_trend_timestamp_index ON explorer.validator_daily_trend USING btree ("timestamp");
 
 
 --

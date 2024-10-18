@@ -99,26 +99,17 @@ async def validator_trending_route(request: Request):
     current_data = int(time.time())
     today_zero_time = current_data - int(time.time() - time.timezone) % 86400
     previous_timestamp = today_zero_time - 86400 * 15
-    trending_time = today_zero_time
 
-    validator_trend = await db.get_validator_trend(address, previous_timestamp)
+    validator_trend = await db.get_validator_daily_trend_by_address_and_time(address, previous_timestamp)
     stake_data: list[dict[str, Any]] = []
     profit_data: list[dict[str, Any]] = []
-    if len(validator_trend) > 0:
-        cur_trend = [trend for trend in validator_trend if trend["timestamp"] >= trending_time]
-        for _ in range(0, 15):
-            stake_data.append({
-                "timestamp": trending_time,
-                "value": int(cur_trend[0]["committee_stake"]) if cur_trend else 0
-            })
-            profit_data.append({
-                "timestamp": trending_time,
-                "value": int(sum(trend["stake_reward"]+trend["delegate_reward"]  for trend in cur_trend))
-
-            })
-            cur_trend = [trend for trend in validator_trend if
-                            trending_time > trend["timestamp"] >= trending_time - 86400 * 1]
-            trending_time = trending_time - 86400 * 1
+    for row in validator_trend:
+        stake_data.append({
+            "timestamp": row["timestamp"], "value": int(row["stake"])
+        })
+        profit_data.append({
+            "timestamp": row["timestamp"], "value": int(row["reward"])
+        })
     ctx = {
         "address": address,
         "address_trunc": address[:14] + "..." + address[-6:],

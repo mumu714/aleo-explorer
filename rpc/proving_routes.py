@@ -803,30 +803,32 @@ async def address_trending_route(request: Request):
         previous_timestamp = today_zero_time - 86400 * 30
         trending_time = today_zero_time
         network_solutions = await db.get_coinbase_by_time(previous_timestamp)
+        address_solutions = await db.get_prover_trend_by_address_and_time(address, previous_timestamp)
     elif type == "1h":
         now_datetime_hour = current_data - (current_data % 3600)
         previous_timestamp = now_datetime_hour - 86400
         trending_time = now_datetime_hour
         network_solutions = await db.get_solutions_by_time(previous_timestamp)
+        address_solutions = await db.get_solutions_by_address_and_time(address, previous_timestamp)
     elif type == "all":
         today_zero_time = current_data - int(time.time() - time.timezone) % 86400
         previous_timestamp = 0
         trending_time = today_zero_time
         network_solutions = await db.get_coinbase_by_time(previous_timestamp)
+        address_solutions = await db.get_prover_trend_by_address_and_time(address, previous_timestamp)
     else:
         raise HTTPException(status_code=400, detail="Error trending type")
-    address_solutions = await db.get_solutions_by_address_and_time(address, previous_timestamp)
     counts_data: list[dict[str, Any]] = []
     reward_data: list[dict[str, Any]] = []
     speed_data: list[dict[str, Any]] = []
     network_counts_data: list[dict[str, Any]] = []
     network_reward_data: list[dict[str, Any]] = []
     network_speed_data: list[dict[str, Any]] = []
-    timestamp_list: list[int] = []
-    if len(address_solutions) > 0:
+    solutions = await db.get_recent_solutions_by_address(address)
+    if len(solutions) > 0:
         if type == "all":
             toady_solutions = await db.get_solutions_by_time(trending_time)
-            toady_address_solutions = [solution for solution in address_solutions if solution["timestamp"] >= trending_time ]
+            toady_address_solutions = await db.get_solutions_by_address_and_time(address, trending_time)
             interval = current_data - trending_time
             network_counts_data.append({
                 "timestamp": trending_time, "count": len(toady_solutions)
@@ -862,49 +864,37 @@ async def address_trending_route(request: Request):
                 network_speed_data.append({
                     "timestamp": trending_time, "speed": float(row["hashrate"])
                 })
-                address_cur_solution = [solution for solution in address_solutions if
-                                trending_time + 86400 > solution["timestamp"] >= trending_time ]
-                if len(address_cur_solution) == 0 and (trending_time not in timestamp_list):
-                    continue
+                address_row = next((row for row in address_solutions if row['timestamp'] == trending_time), None)
                 counts_data.append({
-                    "timestamp": trending_time, "count": len(address_cur_solution)
+                    "timestamp": trending_time, "count": int(address_row["solution_count"] if address_row else 0)
                 })
                 reward_data.append({
-                    "timestamp": trending_time,
-                    "reward": sum(solution["reward"] for solution in address_cur_solution)
+                    "timestamp": trending_time, "reward": int(address_row["solution_reward"] if address_row else 0)
                 })
                 speed_data.append({
-                    "timestamp": trending_time,
-                    "speed": float(sum(solution["pre_proof_target"] for solution in address_cur_solution) / 86400)
+                    "timestamp": trending_time, "speed": float(address_row["hashrate"] if address_row else 0)
                 })
         if type == "1d":
             for row in network_solutions:
-                timestamp_list.append(row["timestamp"])
+                trending_time = row["timestamp"]
                 network_counts_data.append({
-                    "timestamp": row["timestamp"], "count": int(row["solution_count"])
+                    "timestamp": trending_time, "count": int(row["solution_count"])
                 }) 
                 network_reward_data.append({
-                    "timestamp": row["timestamp"], "reward": int(row["solution_reward"])
+                    "timestamp": trending_time, "reward": int(row["solution_reward"])
                 })
                 network_speed_data.append({
-                    "timestamp": row["timestamp"], "speed": float(row["hashrate"])
+                    "timestamp": trending_time, "speed": float(row["hashrate"])
                 })
-            for _ in range(0, 30):
-                address_cur_solution = [solution for solution in address_solutions if
-                                trending_time > solution["timestamp"] >= trending_time - 86400 * 1]
-                trending_time = trending_time - 86400 * 1
-                if len(address_cur_solution) == 0 and (trending_time not in timestamp_list):
-                    continue
+                address_row = next((row for row in address_solutions if row['timestamp'] == trending_time), None)
                 counts_data.append({
-                    "timestamp": trending_time, "count": len(address_cur_solution)
+                    "timestamp": trending_time, "count": int(address_row["solution_count"] if address_row else 0)
                 })
                 reward_data.append({
-                    "timestamp": trending_time,
-                    "reward": sum(solution["reward"] for solution in address_cur_solution)
+                    "timestamp": trending_time, "reward": int(address_row["solution_reward"] if address_row else 0)
                 })
                 speed_data.append({
-                    "timestamp": trending_time,
-                    "speed": float(sum(solution["pre_proof_target"] for solution in address_cur_solution) / 86400)
+                    "timestamp": trending_time, "speed": float(address_row["hashrate"] if address_row else 0)
                 })
         elif type == "1h":
             for _ in range(0, 24):
