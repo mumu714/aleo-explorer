@@ -176,7 +176,7 @@ WITH ats AS
     (SELECT DISTINCT transition_id, height, type
      FROM address_transition at
      WHERE address = %s AND function_name = %s
-     ORDER BY heigth DESC
+     ORDER BY height DESC
      LIMIT %s OFFSET %s)
 SELECT DISTINCT ts.transition_id,
                 b.height,
@@ -258,7 +258,7 @@ WITH ats AS
     (SELECT DISTINCT transition_id, height, type 
      FROM address_transition at
      WHERE address = %s AND program_id = %s AND function_name = %s AND type = %s 
-     ORDER BY heigth DESC
+     ORDER BY height DESC
      LIMIT %s OFFSET %s)
 SELECT DISTINCT ts.transition_id,
                 b.height,
