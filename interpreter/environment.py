@@ -15,5 +15,8 @@ class Registers:
         self._registers[index] = value
 
     def dump(self):
+        last_i, last_r = None, None
         for i, r in self._registers.items():
-            print(f"r{i} = {r}")
+            last_i, last_r = i, r 
+        if last_i is not None and last_r is not None:
+            print(f"r{last_i} = {last_r}")

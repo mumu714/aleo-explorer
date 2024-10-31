@@ -231,6 +231,18 @@ class DatabaseUtil(DatabaseBase):
                             "DELETE FROM committee_history WHERE height > %s",
                             (last_backup_height,)
                         )
+                        await cur.execute(
+                            "DELETE FROM epoch_hashrate WHERE height > %s",
+                            (last_backup_height,)
+                        )
+                        await cur.execute(
+                            "DELETE FROM epoch WHERE epoch_num >= %s",
+                            (last_backup_height // 360,)
+                        )
+                        await cur.execute(
+                            "DELETE FROM address_stake_reward WHERE height > %s",
+                            (last_backup_height,)
+                        )
 
                         for redis_key in self.redis_keys:
                             backup_key = f"{redis_key}:history:{last_backup_height}"

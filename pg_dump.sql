@@ -2729,6 +2729,14 @@ ALTER TABLE ONLY explorer.address_stake_reward
 
 
 --
+-- Name: address_stake_reward address_stake_reward_unique_address_height; Type: CONSTRAINT; Schema: explorer; Owner: -
+--
+
+ALTER TABLE ONLY explorer.address_stake_reward
+ADD CONSTRAINT address_stake_reward_unique_address_height UNIQUE (address, height);
+
+
+--
 -- Name: block_aborted_transaction_id block_aborted_transaction_id_pk; Type: CONSTRAINT; Schema: explorer; Owner: -
 --
 
