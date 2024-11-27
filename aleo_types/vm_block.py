@@ -3686,7 +3686,7 @@ class Block(Serializable, JSONSerialize):
         timestamp_at_year_10 = genesis_timestamp + number_of_seconds_in_10_years
         timestamp_at_year_9 = timestamp_at_year_10 - 31536000
         num_remaining_seconds_to_year_10 = timestamp_at_year_10 - min(block_timestamp, timestamp_at_year_9)
-        anchor_block_reward = 2 * starting_supply * anchor_height * num_remaining_seconds_to_year_10 // (number_of_seconds_in_10_years * (number_of_seconds_in_10_years + 1))
+        anchor_block_reward = 2 * starting_supply * anchor_height * num_remaining_seconds_to_year_10 // (number_of_seconds_in_10_years * (number_of_seconds_in_10_years // 10 + 1))
         coinbase_reward = anchor_block_reward * remaining_proof_target // last_coinbase_target
         annual_reward = starting_supply // 20
         block_reward = annual_reward * min(time_since_last_block, 60) // 31536000 + coinbase_reward // 3 + self.transactions.total_priority_fee
