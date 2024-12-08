@@ -31,3 +31,5 @@ class Canary:
     ans_registry = "aleo_name_service_registry_v3.aleo"
 
     restrictions_id = Field(7562506206353711030068167991213732850758501012603348777370400520506564970105)
+
+    consensus_v2_height = 2900000

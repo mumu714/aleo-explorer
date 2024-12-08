@@ -3638,7 +3638,14 @@ class Block(Serializable, JSONSerialize):
     def __str__(self):
         return f"Block {self.header.metadata.height} ({str(self.block_hash)[:16]}...)"
 
-    def compute_rewards(self, last_coinbase_target: int, last_cumulative_proof_target: int) -> tuple[int, int]:
+    def compute_rewards(self, time_since_last_block: int, last_coinbase_target: int, last_cumulative_proof_target: int) -> tuple[int, int]:
+        from node import Network
+        if self.height < Network.consensus_v2_height:
+            return self.compute_rewards_v1(last_coinbase_target, last_cumulative_proof_target)
+        return self.compute_rewards_v2(time_since_last_block, last_coinbase_target, last_cumulative_proof_target)
+
+
+    def compute_rewards_v1(self, last_coinbase_target: int, last_cumulative_proof_target: int) -> tuple[int, int]:
         starting_supply = 1_500_000_000_000_000
         anchor_time = 25
         block_time = 10
@@ -3659,6 +3666,37 @@ class Block(Serializable, JSONSerialize):
         block_height_at_year_1 = 31536000 // 10
         annual_reward = starting_supply // 1000 * 50
         block_reward = annual_reward // block_height_at_year_1 + coinbase_reward // 3 + self.transactions.total_priority_fee
+
+        return block_reward, int(coinbase_reward)
+
+    def compute_rewards_v2(self, time_since_last_block: int, last_coinbase_target: int, last_cumulative_proof_target: int) -> tuple[int, int]:
+        starting_supply = 1_500_000_000_000_000
+        anchor_time = 25
+        block_time = 10
+        anchor_height = anchor_time // block_time
+        if self.solutions.value is None:
+            combined_proof_target = 0
+        else:
+            combined_proof_target = sum(s.target for s in self.solutions.value.solutions)
+
+        remaining_coinbase_target = max(0, last_coinbase_target - last_cumulative_proof_target)
+        remaining_proof_target = min(combined_proof_target, remaining_coinbase_target)
+
+        from node import Network
+        genesis_timestamp = Network.genesis_block.header.metadata.timestamp
+        block_timestamp = self.header.metadata.timestamp
+
+        number_of_seconds_in_10_years = 31536000 * 10
+        timestamp_at_year_10 = genesis_timestamp + number_of_seconds_in_10_years
+        timestamp_at_year_9 = timestamp_at_year_10 - 31536000
+
+        num_remaining_seconds_to_year_10 = timestamp_at_year_10 - min(block_timestamp, timestamp_at_year_9)
+
+        anchor_block_reward = 2 * starting_supply * anchor_height * num_remaining_seconds_to_year_10 // (number_of_seconds_in_10_years * (number_of_seconds_in_10_years // 10 + 1))
+        coinbase_reward = anchor_block_reward * remaining_proof_target // last_coinbase_target
+
+        annual_reward = starting_supply // 20
+        block_reward = annual_reward * min(time_since_last_block, 60) // 31536000 + coinbase_reward // 3 + self.transactions.total_priority_fee
 
         return block_reward, int(coinbase_reward)
 

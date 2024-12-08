@@ -1364,7 +1364,11 @@ class DatabaseInsert(DatabaseBase):
 
                     try:
                         if block.height != 0:
+                            from db import Database
+                            last_block_timestamp = await cast(Database, self).get_latest_block_timestamp()
+                            time_since_last_block = block.header.metadata.timestamp - last_block_timestamp
                             block_reward, coinbase_reward = block.compute_rewards(
+                                time_since_last_block,
                                 await cast("Database", self).get_latest_coinbase_target(),
                                 await cast("Database", self).get_latest_cumulative_proof_target()
                             )
@@ -1393,8 +1397,6 @@ class DatabaseInsert(DatabaseBase):
 
                         for ratification in block.ratifications:
                             if isinstance(ratification, BlockRewardRatify):
-                                # TODO: remove this
-                                block_reward = ratification.amount
                                 if ratification.amount != block_reward:
                                     raise RuntimeError("invalid block reward")
                             elif isinstance(ratification, PuzzleRewardRatify):
