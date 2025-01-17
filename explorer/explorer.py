@@ -164,6 +164,9 @@ class Explorer:
 
     async def add_hashrate(self):
         await self.db.save_hashrate()
+        await self.db.update_prover_leaderboard("15min")
+        await self.db.update_prover_leaderboard("1h")
+        await self.db.update_prover_leaderboard("1d")
 
     async def add_coinbase(self):
         await self.db.save_one_day_coinbase()
@@ -173,6 +176,7 @@ class Explorer:
 
     async def update_24H_reward_data(self):
         await self.db.save_24H_reward_data()
+        await self.db.update_prover_leaderboard("7d")
 
     async def check_data_sync(self):
         last_timestamp, last_height = await asyncio.gather(

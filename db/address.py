@@ -707,6 +707,7 @@ LIMIT 10
                 except Exception as e:
                     await self.message_callback(ExplorerMessage(ExplorerMessage.Type.DatabaseError, e))
                     raise
+
     async def get_total_solution_count(self) -> int:
         async with self.pool.connection() as conn:
             async with conn.cursor() as cur:
@@ -831,3 +832,32 @@ LIMIT 10
                 except Exception as e:
                     await self.message_callback(ExplorerMessage(ExplorerMessage.Type.DatabaseError, e))
                     raise
+
+    async def get_prover_leaderboard(self, type: str):
+        data = await self.redis.hgetall(f"{type}_prover_leaderboard")
+        return len(data), data
+
+    async def update_prover_leaderboard(self, type: str):
+        interval = {
+            "15min": 900,
+            "1h": 3600,
+            "1d": 86400,
+            "7d": 86400 * 7
+        }
+        now = int(time.time())
+        leaderboard_data: dict[str, dict[str, float]] = {}
+        solutions = await self.get_solutions_by_time(now - interval[type])
+        address_list = list(set(map(lambda x: x['address'], solutions)))
+        for address in address_list:
+            cur_solution = [solution for solution in solutions if solution["address"] == address]
+            total_rewards = await self.get_puzzle_reward_by_address(address)
+            leaderboard_data[str(address)] = {
+                "count": len(cur_solution),
+                "power": float(sum(solution["pre_proof_target"] for solution in cur_solution) / interval[type]),
+                "reward": sum(solution["reward"] for solution in cur_solution),
+                "total_reward": int(total_rewards)
+            }
+        await self.redis.execute_command("MULTI") # type: ignore
+        await self.redis.delete(f"{type}_prover_leaderboard")
+        await self.redis.hset(f"{type}_prover_leaderboard", mapping={k: json.dumps(v) for k, v in leaderboard_data.items()})
+        await self.redis.execute_command("EXEC") # type: ignore

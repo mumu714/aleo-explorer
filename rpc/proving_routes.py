@@ -106,29 +106,24 @@ async def reward_route(request: Request):
         if offset < 0 or offset > address_count:
             raise HTTPException(status_code=400, detail="Invalid page")
         for address, total_reward  in leaderboard_data.items():
-            address_type = await get_address_type(db, address)
             all_data.append({
                 "address": address,
-                "address_type": address_type,
+                "address_type": "Prover",
                 "reward": int(total_reward),
                 "total_reward": int(total_reward),
             })
     else:
-        solutions = await db.get_solutions_by_time(now - interval[type])
-        address_list = list(set(map(lambda x: x['address'], solutions)))
-        address_count = len(address_list)
+        address_count, address_list = await db.get_prover_leaderboard(type)
         if offset < 0 or offset > address_count:
             raise HTTPException(status_code=400, detail="Invalid page")
-        for address in address_list:
-            cur_solution = [solution for solution in solutions if solution["address"] == address]
-            total_rewards = await db.get_puzzle_reward_by_address(address)
-            address_type = await get_address_type(db, address)
+        for address, values in address_list.items():
+            address_data = json.loads(values)
             all_data.append({
                 "address": address,
-                "address_type": address_type,
-                "reward": sum(solution["reward"] for solution in cur_solution),
-                "count": len(cur_solution),
-                "total_reward": int(total_rewards)
+                "address_type": "Prover",
+                "reward": address_data["reward"],
+                "count": int(address_data["count"]),
+                "total_reward": int(address_data["total_reward"])
             })
     leaderboard_data = sorted(all_data, key=lambda e: e['reward'], reverse=True)
     if offset + limit > len(leaderboard_data):
@@ -138,7 +133,7 @@ async def reward_route(request: Request):
 
     target_credit = 37_500_000_000_000
     ctx = {
-        "leaderboard": sorted(data, key = lambda i: i['reward'],reverse=True) ,
+        "leaderboard": data,
         "address_count": address_count,
         "target_credit": target_credit,
         "now": now,
@@ -172,19 +167,16 @@ async def power_route(request: Request):
         raise HTTPException(status_code=400, detail="Error trending type")
     now = int(time.time())
     all_data: list[dict[str, Any]] = []
-    solutions = await db.get_solutions_by_time(now - interval[type])
-    address_list = list(set(map(lambda x: x['address'], solutions)))
-    address_count = len(address_list)
+    address_count, address_list = await db.get_prover_leaderboard(type)
     if offset < 0 or offset > address_count:
         raise HTTPException(status_code=400, detail="Invalid page")
-    for address in address_list:
-        cur_solution = [solution for solution in solutions if solution["address"] == address]
-        address_type = await get_address_type(db, address)
+    for address, values in address_list.items():
+        address_data = json.loads(values)
         all_data.append({
             "address": address,
-            "address_type": address_type,
-            "count": len(cur_solution),
-            "power": float(sum(solution["pre_proof_target"] for solution in cur_solution) / interval[type]),
+            "address_type": "Prover",
+            "count": address_data["count"],
+            "power": address_data["power"],
         })
     leaderboard_data = sorted(all_data, key=lambda e: e['power'], reverse=True)
     if offset + limit > len(leaderboard_data):
