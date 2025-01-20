@@ -642,20 +642,20 @@ class DatabaseInsert(DatabaseBase):
             # confirming tx
             if confirmed_transaction is not None:
                 await cur.execute(
-                    "UPDATE transaction SET confirmed_transaction_id = %s WHERE transaction_id = %s",
-                    (confirmed_transaction_db_id, str(transaction.id))
-                )
-                await cur.execute(
-                    "UPDATE transition ts SET confirmed_transaction_id = %s "
-                    "FROM transaction tx WHERE tx.id = ts.transaction_id AND tx.transaction_id = %s",
-                    (confirmed_transaction_db_id, str(transaction.id))
-                )
-                await cur.execute(
                     "SELECT height, timestamp FROM confirmed_transaction ct JOIN block b ON b.id = ct.block_id "
                     "WHERE ct.id = %s ",(confirmed_transaction_db_id,)
                 )
                 if (res := await cur.fetchone()) is None:
                     raise RuntimeError("database inconsistent")
+                await cur.execute(
+                    "UPDATE transaction SET confirmed_transaction_id = %s WHERE transaction_id = %s",
+                    (confirmed_transaction_db_id, str(transaction.id))
+                )
+                await cur.execute(
+                    "UPDATE transition ts SET height = %s, timestamp = %s, confirmed_transaction_id = %s "
+                    "FROM transaction tx WHERE tx.id = ts.transaction_id AND tx.transaction_id = %s",
+                    (res["height"], res["timestamp"], confirmed_transaction_db_id, str(transaction.id))
+                )
                 await cur.execute(
                     "UPDATE address_transition ats SET height = %s, timestamp = %s "
                     "FROM transition ts, transaction tx WHERE ats.transition_id = ts.id "
@@ -2154,6 +2154,18 @@ class DatabaseInsert(DatabaseBase):
                             (height, epoch_end_timestamp["timestamp"], hashrate, hashrate)
                         )
                         height += 360
+                except Exception as e:
+                    await self.message_callback(ExplorerMessage(ExplorerMessage.Type.DatabaseError, e))
+                    raise
+
+    async def del_latest_data(self):
+        async with self.pool.connection() as conn:
+            async with conn.cursor() as cur:
+                try:
+                    await cur.execute(
+                        "DELETE FROM lasted_transition WHERE id NOT IN "
+                        "(SELECT id FROM lasted_transition ORDER BY timestamp DESC LIMIT 1000"
+                    )
                 except Exception as e:
                     await self.message_callback(ExplorerMessage(ExplorerMessage.Type.DatabaseError, e))
                     raise

@@ -104,6 +104,7 @@ class Explorer:
             self.scheduler.add_job(self.add_coinbase, 'cron', hour="*/8", id='job3')  # type: ignore
             self.scheduler.add_job(self.update_24H_reward_data, 'cron', hour="*/1", id='job4')  # type: ignore
             self.scheduler.add_job(self.check_data_sync, 'cron', minute="*/10", id='job5')  # type: ignore
+            self.scheduler.add_job(self.update_latest_data, 'cron', hour="*/12", id='job6') # type: ignore
             while True:
                 msg = await self.message_queue.get()
                 match msg.type:
@@ -177,6 +178,9 @@ class Explorer:
     async def update_24H_reward_data(self):
         await self.db.save_24H_reward_data()
         await self.db.update_prover_leaderboard("7d")
+
+    async def update_latest_data(self):
+        await self.db.del_latest_data()
 
     async def check_data_sync(self):
         last_timestamp, last_height = await asyncio.gather(

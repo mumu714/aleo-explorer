@@ -387,6 +387,33 @@ END;
 $$ LANGUAGE plpgsql;
 
 
+--
+-- Name: sync_latest_transition(); Type: FUNCTION; Schema: explorer; Owner: -
+--
+
+CREATE FUNCTION explorer.sync_latest_transition()
+RETURNS TRIGGER AS $$
+BEGIN
+    IF TG_OP = 'INSERT' THEN
+        INSERT INTO explorer.latest_transition
+        SELECT * FROM explorer.transition
+        WHERE id = NEW.id;
+    ELSIF TG_OP = 'DELETE' THEN
+        DELETE FROM explorer.latest_transition
+        WHERE id = OLD.id;
+    ELSIF TG_OP = 'UPDATE' THEN
+        UPDATE explorer.latest_transition
+        SET height = NEW.height,
+            timestamp = NEW.timestamp,
+            confirmed_transaction_id = NEW.confirmed_transaction_id
+        WHERE id = OLD.id;
+    END IF;
+    
+    RETURN NULL;
+END;
+$$ LANGUAGE plpgsql;
+
+
 SET default_tablespace = '';
 
 SET default_table_access_method = heap;
@@ -1961,6 +1988,8 @@ ALTER SEQUENCE explorer.transaction_id_seq OWNED BY explorer.transaction.id;
 
 CREATE TABLE explorer.transition (
     id integer NOT NULL,
+    height bigint,
+    "timestamp" bigint,
     transition_id text NOT NULL,
     transaction_id integer,
     confirmed_transaction_id integer,
@@ -1973,6 +2002,21 @@ CREATE TABLE explorer.transition (
     index integer NOT NULL,
     scm text NOT NULL
 );
+
+
+--
+-- Name: latest_transition; Type: TABLE; Schema: explorer; Owner: -
+--
+
+CREATE TABLE explorer.latest_transition (
+    LIKE explorer.transition INCLUDING ALL
+);
+
+
+CREATE TRIGGER trigger_sync_latest_transition
+AFTER INSERT OR DELETE OR UPDATE ON explorer.transition
+FOR EACH ROW
+EXECUTE FUNCTION explorer.sync_latest_transition();
 
 
 --
@@ -4110,6 +4154,20 @@ CREATE INDEX transition_confirmed_transaction_id_index ON explorer.transition US
 --
 
 CREATE INDEX transition_transaction_id_index ON explorer.transition USING btree (transaction_id);
+
+
+--
+-- Name: transition_height_index; Type: INDEX; Schema: explorer; Owner: -
+--
+
+CREATE INDEX transition_height_index ON explorer.transition USING btree (height);
+
+
+--
+-- Name: transition_timestamp_index; Type: INDEX; Schema: explorer; Owner: -
+--
+
+CREATE INDEX transition_timestamp_index ON explorer.transition USING btree ("timestamp");
 
 
 --
