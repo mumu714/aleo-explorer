@@ -857,6 +857,9 @@ LIMIT 10
                 "reward": sum(solution["reward"] for solution in cur_solution),
                 "total_reward": int(total_rewards)
             }
+        if not leaderboard_data:
+            print(f"No data to update for type {type}")
+            return
         await self.redis.execute_command("MULTI") # type: ignore
         await self.redis.delete(f"{type}_prover_leaderboard")
         await self.redis.hset(f"{type}_prover_leaderboard", mapping={k: json.dumps(v) for k, v in leaderboard_data.items()})
