@@ -2163,8 +2163,8 @@ class DatabaseInsert(DatabaseBase):
             async with conn.cursor() as cur:
                 try:
                     await cur.execute(
-                        "DELETE FROM lasted_transition WHERE id NOT IN "
-                        "(SELECT id FROM lasted_transition ORDER BY timestamp DESC LIMIT 1000"
+                        "DELETE FROM latest_transition WHERE id NOT IN "
+                        "(SELECT id FROM latest_transition ORDER BY timestamp DESC LIMIT 12000)"
                     )
                 except Exception as e:
                     await self.message_callback(ExplorerMessage(ExplorerMessage.Type.DatabaseError, e))

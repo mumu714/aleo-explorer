@@ -62,15 +62,24 @@ class DatabaseTransaction(DatabaseBase):
         async with self.pool.connection() as conn:
             async with conn.cursor() as cur:
                 try:
-                    await cur.execute(
-                        "SELECT b.height, b.timestamp, ts.transition_id, ts.program_id, ts.function_name, ct.type "
-                        "FROM transition ts "
-                        "JOIN confirmed_transaction ct on ts.confirmed_transaction_id = ct.id "
-                        "JOIN block b on ct.block_id = b.id "
-                        "ORDER BY height DESC "
-                        "LIMIT %s OFFSET %s",
-                        (end - start, start)
-                    )
+                    if end <= 10000:
+                        await cur.execute(
+                            "SELECT ts.height, ts.timestamp, ts.transition_id, ts.program_id, ts.function_name, ct.type "
+                            "FROM latest_transition ts "
+                            "JOIN confirmed_transaction ct on ts.confirmed_transaction_id = ct.id "
+                            "ORDER BY height DESC "
+                            "LIMIT %s OFFSET %s",
+                            (end - start, start)
+                        )
+                    else:
+                        await cur.execute(
+                            "SELECT ts.height, ts.timestamp, ts.transition_id, ts.program_id, ts.function_name, ct.type "
+                            "FROM transition ts "
+                            "JOIN confirmed_transaction ct on ts.confirmed_transaction_id = ct.id "
+                            "ORDER BY height DESC "
+                            "LIMIT %s OFFSET %s",
+                            (end - start, start)
+                        )
                     return await cur.fetchall()
                 except Exception as e:
                     await self.message_callback(ExplorerMessage(ExplorerMessage.Type.DatabaseError, e))
