@@ -188,7 +188,7 @@ class Explorer:
             self.db.get_latest_height()
         )
         now = int(time.time())
-        out_of_sync = now - last_timestamp > 300
+        out_of_sync = now - last_timestamp > 600
         if out_of_sync:
             rpc_root = os.environ.get("RPC_URL_ROOT", "127.0.0.1:3003")
             network = os.environ.get("NETWORK")

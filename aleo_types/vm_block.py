@@ -3,7 +3,7 @@ from __future__ import annotations
 import json
 import re
 from hashlib import md5
-from typing import NamedTuple
+from typing import NamedTuple, TypedDict
 
 from .vm_instruction import *
 
@@ -934,6 +934,39 @@ class Program(Serializable, JSONSerialize):
             [("F" + f.instruction_feature_string()) for f in self.functions.values()]
         )
         return md5(feature_string.encode()).digest()
+    
+    CallGraphNode = TypedDict("CallGraphNode", {"index": int, "name": str, "calls": list["CallGraphNode"]})
+
+    async def call_graph(self, function_name: Identifier, db: Database) -> list[CallGraphNode]:
+        from util.global_cache import get_program
+        if function_name not in self.functions:
+            raise ValueError("Function not found")
+        function = self.functions[function_name]
+        calls: list[Program.CallGraphNode] = []
+        for inst in function.instructions:
+            if isinstance(inst.literals, CallInstruction) and isinstance(inst.literals.operator, LocatorCallOperator):
+                locator = inst.literals.operator.locator
+                program_id = locator.id
+                program = await get_program(db, str(program_id))
+                if program is None:
+                    raise ValueError(f"Program {program_id} not found")
+                calls.append({
+                    "index": 0,
+                    "name": str(locator),
+                    "calls": await program.call_graph(locator.resource, db)
+                })
+
+        def fill_transition_order(current_index: int, _calls: list[Program.CallGraphNode]) -> int:
+            for c in _calls:
+                current_index = fill_transition_order(current_index, c["calls"])
+                c["index"] = current_index
+                current_index += 1
+            return current_index
+
+        fill_transition_order(0, calls)
+        return calls
+
+    
 
 
 
