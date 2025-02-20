@@ -1295,7 +1295,7 @@ class DatabaseInsert(DatabaseBase):
                         if history:
                             history_key = f"{key}:history:{height - 1}"
                             await redis_conn.rename(backup_key, history_key) # type: ignore[arg-type]
-                            await redis_conn.expire(history_key, 60 * 60 * 24 * 3)
+                            await redis_conn.expire(history_key, 60 * 60 * 24)
                         else:
                             await redis_conn.delete(backup_key)
 

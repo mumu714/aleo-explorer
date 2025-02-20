@@ -32,7 +32,7 @@ async def _execute_public_fee(db: Database, cur: psycopg.AsyncCursor[dict[str, A
         raise RuntimeError("program not found")
 
     inputs: list[Value] = load_input_from_arguments(future.arguments)
-    return await execute_finalizer(db, cur, finalize_state, fee_transition.id, program, future.function_name, inputs,
+    return await execute_finalizer(db, cur, finalize_state, [fee_transition.id], set(), program, future.function_name, inputs,
                                    mapping_cache, local_mapping_cache, allow_state_change)
 
 async def finalize_deploy(db: Database, cur: psycopg.AsyncCursor[dict[str, Any]], finalize_state: FinalizeState,
@@ -77,6 +77,70 @@ def load_input_from_arguments(arguments: list[Argument]) -> list[Value]:
             raise NotImplementedError
     return inputs
 
+LocalCallGraphNode = TypedDict("LocalCallGraphNode", {"index": int, "name": str, "transition_id": TransitionID, "calls": list["LocalCallGraphNode"]})
+
+async def _trace_execution(db: Database, transition_ids: list[TransitionID], program: Program, function_name: Identifier, node: Program.CallGraphNode, async_order: list[TransitionID]):
+    # add transition ids to call graph
+    for c in node["calls"]:
+        cast(LocalCallGraphNode, c)["transition_id"] = transition_ids[c["index"]]
+    future_register_map: dict[int, LocalCallGraphNode] = {}
+    finalize_register_map: dict[int, LocalCallGraphNode] = {}
+    function = program.functions[function_name]
+    if function.finalize.value is None:
+        return
+    call_index = 0
+    for inst in function.instructions:
+        if isinstance(inst.literals, CallInstruction) and isinstance(inst.literals.operator, LocatorCallOperator):
+            locator = inst.literals.operator.locator
+            called_program = await get_program(db, str(locator.id))
+            if not called_program:
+                raise RuntimeError("program not found")
+            called_function = called_program.functions[locator.resource]
+            if called_function.finalize.value is None:
+                call_index += 1
+                continue
+            future_destination = cast(LocatorRegister, inst.literals.destinations[-1])
+            future_register_map[future_destination.locator] = cast(LocalCallGraphNode, node["calls"][call_index])
+            if f"{called_program.id}/{called_function.name}" != node["calls"][call_index]["name"]:
+                raise RuntimeError("call analysis failed")
+            call_index += 1
+        elif isinstance(inst.literals, AsyncInstruction):
+            for param_index, operand in enumerate(inst.literals.operands):
+                if isinstance(operand, RegisterOperand) and isinstance(operand.register, LocatorRegister):
+                    if operand.register.locator in future_register_map:
+                        finalize_register_map[param_index] = future_register_map[operand.register.locator]
+
+    for cmd in function.finalize.value.commands:
+        if isinstance(cmd, AwaitCommand):
+            locator = cmd.register.locator
+            if locator not in finalize_register_map:
+                raise RuntimeError("invalid await command")
+            called_node = finalize_register_map[locator]
+            async_order.append(called_node["transition_id"])
+            p, f = called_node["name"].split("/")
+            called_program = await get_program(db, p)
+            if not called_program:
+                raise RuntimeError("program not found")
+            if Identifier.loads(f) not in called_program.functions:
+                raise RuntimeError("function not found")
+            await _trace_execution(db, transition_ids, called_program, Identifier.loads(f), called_node, async_order)
+
+
+async def build_async_order(db: Database, transition_ids: list[TransitionID], program: Program, function_name: Identifier) -> list[TransitionID]:
+    call_graph = await program.call_graph(function_name, db)
+
+    root_call_graph: Program.CallGraphNode = {
+        "index": len(transition_ids) - 1,
+        "name": "",
+        "calls": call_graph,
+    }
+
+    async_order = [transition_ids[-1]]
+
+    await _trace_execution(db, transition_ids, program, function_name, root_call_graph, async_order)
+
+    return async_order
+
 @profile
 async def finalize_execute(db: Database, cur: psycopg.AsyncCursor[dict[str, Any]], finalize_state: FinalizeState,
                            confirmed_transaction: ConfirmedTransaction, mapping_cache: dict[Field, MappingCacheDict]
@@ -114,11 +178,15 @@ async def finalize_execute(db: Database, cur: psycopg.AsyncCursor[dict[str, Any]
             program = await get_program(db, str(future.program_id))
             if not program:
                 raise RuntimeError("program not found")
+            
+            transition_ids = [x.id for x in execution.transitions]
+
+            async_order = await build_async_order(db, transition_ids, program, future.function_name)
 
             inputs: list[Value] = load_input_from_arguments(future.arguments)
             try:
                 operations.extend(
-                    await execute_finalizer(db, cur, finalize_state, transition.id, program, future.function_name, inputs, mapping_cache, local_mapping_cache, allow_state_change)
+                    await execute_finalizer(db, cur, finalize_state, async_order, set(), program, future.function_name, inputs, mapping_cache, local_mapping_cache, allow_state_change)
                 )
             except ExecuteError as e:
                 for ts in execution.transitions:
@@ -274,4 +342,5 @@ async def preview_finalize_execution(db: Database, program: Program, function_na
         mapping_cache={},
         local_mapping_cache={},
         allow_state_change=False,
+        execute_await=True,
     )

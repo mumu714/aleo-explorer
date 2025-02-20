@@ -45,11 +45,13 @@ class ExecuteError(Exception):
 
 @profile
 async def execute_finalizer(db: Database, cur: Optional[psycopg.AsyncCursor[dict[str, Any]]], finalize_state: FinalizeState,
-                            transition_id: TransitionID, program: Program,
+                            transitions: list[TransitionID], transition_index_executed: set[int], program: Program,
                             function_name: Identifier, inputs: list[Value],
                             mapping_cache: dict[Field, MappingCacheDict],
                             local_mapping_cache: dict[Field, MappingCacheDict],
                             allow_state_change: bool) -> list[dict[str, Any]]:
+    transition_index = len(transition_index_executed)
+    transition_index_executed.add(transition_index)
     registers = Registers()
     operations: list[dict[str, Any]] = []
     function = program.functions[function_name]
@@ -100,7 +102,7 @@ async def execute_finalizer(db: Database, cur: Optional[psycopg.AsyncCursor[dict
                 try:
                     execute_instruction(instruction, program, registers, finalize_state)
                 except (AssertionError, OverflowError, ZeroDivisionError, RustExecuteError) as e:
-                    raise ExecuteError(str(e), e, disasm_instruction(instruction), transition_id, str(program.id), str(function_name))
+                    raise ExecuteError(str(e), e, disasm_instruction(instruction), transitions[transition_index], str(program.id), str(function_name))
                 except Exception:
                     registers.dump()
                     raise
@@ -150,7 +152,7 @@ async def execute_finalizer(db: Database, cur: Optional[psycopg.AsyncCursor[dict
                 if not allow_state_change and key_id in local_mapping_cache[mapping_id]:
                     if local_mapping_cache[mapping_id][key_id]["value"] is None:
                         if isinstance(c, GetCommand):
-                            raise ExecuteError(f"key {key} not found in mapping {mapping}", None, disasm_command(c), transition_id, str(program.id), str(function_name))
+                            raise ExecuteError(f"key {key} not found in mapping {mapping}", None, disasm_command(c), transitions[transition_index], str(program.id), str(function_name))
                         default = load_plaintext_from_operand(c.default, registers, finalize_state)
                         value = PlaintextValue(plaintext=default)
                     else:
@@ -158,7 +160,7 @@ async def execute_finalizer(db: Database, cur: Optional[psycopg.AsyncCursor[dict
                 else:
                     if key_id not in mapping_cache[mapping_id]:
                         if isinstance(c, GetCommand):
-                            raise ExecuteError(f"key {key} not found in mapping {mapping}", None, disasm_command(c), transition_id, str(program.id), str(function_name))
+                            raise ExecuteError(f"key {key} not found in mapping {mapping}", None, disasm_command(c), transitions[transition_index], str(program.id), str(function_name))
                         default = load_plaintext_from_operand(c.default, registers, finalize_state)
                         value = PlaintextValue(plaintext=default)
                     else:
@@ -201,15 +203,22 @@ async def execute_finalizer(db: Database, cur: Optional[psycopg.AsyncCursor[dict
                 })
 
             elif isinstance(c, RandChaChaCommand):
+                from node import Network
                 additional_seeds = list(map(lambda x: PlaintextValue(plaintext=load_plaintext_from_operand(x, registers, finalize_state)).dump(), c.operands))
+                if finalize_state.block_height >= Network.consensus_v3_height:
+                    rand_transition_index = 0
+                else:
+                    rand_transition_index = transition_index
                 chacha_seed = aleo_explorer_rust.chacha_random_seed(
                     finalize_state.random_seed,
-                    transition_id.dump(),
+                    transitions[rand_transition_index].dump(),
                     program.id.dump(),
                     function_name.dump(),
                     int(c.destination.locator),
                     c.destination_type.value,
                     additional_seeds,
+                    finalize_state.block_height >= Network.consensus_v3_height,
+                    transition_index,
                 )
                 primitive_type = c.destination_type.primitive_type
                 value = primitive_type.load(BytesIO(aleo_explorer_rust.chacha_random_value(chacha_seed, c.destination_type)))
@@ -266,14 +275,14 @@ async def execute_finalizer(db: Database, cur: Optional[psycopg.AsyncCursor[dict
                 from interpreter.interpreter import load_input_from_arguments
                 call_inputs: list[Value] = load_input_from_arguments(call_future.arguments)
                 operations.extend(
-                    await execute_finalizer(db, cur, finalize_state, transition_id, call_program, call_future.function_name, call_inputs, mapping_cache, local_mapping_cache, allow_state_change)
+                    await execute_finalizer(db, cur, finalize_state, transitions, transition_index_executed, call_program, call_future.function_name, call_inputs, mapping_cache, local_mapping_cache, allow_state_change)
                 )
 
             else:
                 raise NotImplementedError
 
         except IndexError as e:
-            raise ExecuteError(f"r{e} does not exist", e, disasm_command(c), transition_id, str(program.id), str(function_name))
+            raise ExecuteError(f"r{e} does not exist", e, disasm_command(c), transitions[transition_index], str(program.id), str(function_name))
 
         pc += 1
 
