@@ -5,6 +5,7 @@ import time
 import traceback
 from asyncio import StreamReader, StreamWriter
 from typing import Awaitable
+from datetime import datetime
 
 import explorer.types as explorer
 from aleo_types import *  # too many types
@@ -253,7 +254,7 @@ class Node:
 
             start_block_height = latest_height + 1
             end_block_height = min(self.peer_block_height + 1, start_block_height + batch_size)
-            print(f"Synchronizing from block {start_block_height} to {end_block_height}")
+            print(f"[{datetime.now().strftime('%Y-%m-%d %H:%M:%S')}] Synchronizing from block {start_block_height} to {end_block_height}")
             self.is_syncing = True
 
             self.block_requests.extend(range(start_block_height, end_block_height))

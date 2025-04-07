@@ -3,6 +3,7 @@ import os
 import traceback
 from sys import stdout
 import time
+from datetime import datetime
 import json
 import requests
 
@@ -139,8 +140,10 @@ class Explorer:
         if block.previous_hash != self.latest_block_hash:
             print(f"ignoring block {block} because previous block hash does not match")
         else:
-            print(f"adding block {block}")
+            print(f"[{datetime.now().strftime('%Y-%m-%d %H:%M:%S')}] adding block {block}")
+            timer = time.perf_counter_ns()
             await self.db.save_block(block)
+            print(f"execution add block {time.perf_counter_ns() - timer} ns")
             self.latest_height = block.header.metadata.height
             self.latest_block_hash = block.block_hash
 

@@ -1357,10 +1357,16 @@ class DatabaseInsert(DatabaseBase):
             signal.pthread_sigmask(signal.SIG_BLOCK, {signal.SIGINT})
             async with conn.transaction():
                 async with conn.cursor() as cur:
+                    timer = time.perf_counter_ns()
                     height = block.height
                     # redis is not protected by transaction so manually saving here
+                    # This part is to prevent errors when the task is terminated, which may cause data to be unable to continue syncing. 
+                    # However, this part takes about 1.5 seconds.
+                    # Can be commented out in special cases(pause the snarkos node first).
                     await self._backup_redis_hash_key(self.redis, self.redis_keys, height)
                     signal.pthread_sigmask(signal.SIG_UNBLOCK, {signal.SIGINT})
+                    print(f"execution 0  {time.perf_counter_ns() - timer} ns")
+                    timer = time.perf_counter_ns()
 
                     try:
                         if block.height != 0:
@@ -1381,6 +1387,8 @@ class DatabaseInsert(DatabaseBase):
                         else:
                             block_reward, coinbase_reward, puzzle_reward = 0, 0, 0
                             supply_tracker = _SupplyTracker(0)
+                        print(f"execution 1  {time.perf_counter_ns() - timer} ns")
+                        timer = time.perf_counter_ns()
 
                         # TODO: use data from proper fee calculation
                         # supply_tracker.burn(await block.get_total_burnt_fee(cast("Database", self)))
@@ -1394,6 +1402,8 @@ class DatabaseInsert(DatabaseBase):
 
                         # TODO: use data from fee calculation
                         # block_reward += await block.get_total_priority_fee(cast("Database", self))
+                        print(f"execution 2  {time.perf_counter_ns() - timer} ns")
+                        timer = time.perf_counter_ns()
 
                         for ratification in block.ratifications:
                             if isinstance(ratification, BlockRewardRatify):
@@ -1404,9 +1414,13 @@ class DatabaseInsert(DatabaseBase):
                                     raise RuntimeError("invalid puzzle reward")
                             elif isinstance(ratification, GenesisRatify):
                                 await self._pre_ratify(cur, ratification, supply_tracker)
+                        print(f"execution 3  {time.perf_counter_ns() - timer} ns")
+                        timer = time.perf_counter_ns()
 
                         from interpreter.interpreter import finalize_block
                         reject_reasons = await finalize_block(cast("Database", self), cur, block)
+                        print(f"execution 4  {time.perf_counter_ns() - timer} ns")
+                        timer = time.perf_counter_ns()
 
                         await cur.execute(
                             "INSERT INTO block (height, block_hash, previous_hash, previous_state_root, transactions_root, "
@@ -1426,6 +1440,8 @@ class DatabaseInsert(DatabaseBase):
                         if (res := await cur.fetchone()) is None:
                             raise RuntimeError("failed to insert row into database")
                         block_db_id = res["id"]
+                        print(f"execution 5  {time.perf_counter_ns() - timer} ns")
+                        timer = time.perf_counter_ns()
 
                         # dag_transmission_ids: tuple[dict[str, int], dict[str, int]] = {}, {}
 
@@ -1436,6 +1452,9 @@ class DatabaseInsert(DatabaseBase):
                             )
                             subdag_copy_data = []
                             validators_copy_data = []
+                            dag_vertex_signature_data = []
+                            dag_vertex_previous_id_data = []
+                            tid_copy_data = []
                         elif isinstance(block.authority, QuorumAuthority):
                             await cur.execute(
                                 "INSERT INTO authority (block_id, type) VALUES (%s, %s) RETURNING id",
@@ -1449,15 +1468,16 @@ class DatabaseInsert(DatabaseBase):
                             committee = await self._get_committee_mapping_unchecked(self.redis)
                             validators: set[str] = set()
                             validators_copy_data: list[tuple[int, str]] = []
+
+                            dag_vertex_signature_data: list[tuple[int, str, int]] = []
+                            dag_vertex_previous_id_data: list[tuple[int, list[str]]] = []
+                            tid_copy_data: list[tuple[int, str, int, Optional[str], Optional[str], Optional[str]]] = []
+
                             for round_, certificates in subdag.subdag.items():
                                 for index, certificate in enumerate(certificates):
                                     if round_ != certificate.batch_header.round:
                                         raise ValueError("invalid subdag round")
-                                    subdag_copy_data.append((
-                                        authority_db_id, round_, str(certificate.batch_header.batch_id),
-                                        str(certificate.batch_header.author), certificate.batch_header.timestamp,
-                                        str(certificate.batch_header.signature), index, str(certificate.batch_header.committee_id)
-                                    ))
+                                    
                                     if len(validators) != len(committee):
                                         for signature in certificate.signatures:
                                             validators.add(cached_compute_key_to_address(signature.compute_key))
@@ -1476,50 +1496,48 @@ class DatabaseInsert(DatabaseBase):
                                     vertex_db_id = res["id"]
 
                                     for sig_index, signature in enumerate(certificate.signatures):
-                                        await cur.execute(
-                                            "INSERT INTO dag_vertex_signature (vertex_id, signature, index) "
-                                            "VALUES (%s, %s, %s)",
-                                            (vertex_db_id, str(signature), sig_index)
-                                        )
+                                        dag_vertex_signature_data.append((vertex_db_id, str(signature), sig_index))
 
-                                    prev_cert_ids = certificate.batch_header.previous_certificate_ids
-                                    if prev_cert_ids:
-                                        await cur.execute(
-                                                "INSERT INTO dag_vertex_previous_id (vertex_id, previous_vertex_id) "
-                                                "VALUES (%s, %s)",
-                                                (vertex_db_id, list(map(str, prev_cert_ids)))
-                                            )
+                                    if prev_cert_ids := certificate.batch_header.previous_certificate_ids:
+                                        dag_vertex_previous_id_data.append((vertex_db_id, list(map(str, prev_cert_ids))))
 
-                                    tid_copy_data: list[tuple[int, str, int, Optional[str], Optional[str], Optional[str]]] = []
                                     for tid_index, transmission_id in enumerate(certificate.batch_header.transmission_ids):
                                         if isinstance(transmission_id, SolutionTransmissionID):
                                             tid_copy_data.append((vertex_db_id, transmission_id.type.name, tid_index, str(transmission_id.id), None, str(transmission_id.checksum)))
-                                            # dag_transmission_ids[0][str(transmission_id.id)] = vertex_db_id
                                         elif isinstance(transmission_id, TransactionTransmissionID):
                                             tid_copy_data.append((vertex_db_id, transmission_id.type.name, tid_index, None, str(transmission_id.id), str(transmission_id.checksum)))
-                                            # dag_transmission_ids[1][str(transmission_id.id)] = vertex_db_id
                                         elif isinstance(transmission_id, RatificationTransmissionID):
                                             tid_copy_data.append((vertex_db_id, transmission_id.type.name, tid_index, None, None, None))
                                         else:
                                             raise NotImplementedError
-                                    async with cur.copy("COPY dag_vertex_transmission_id (vertex_id, type, index, commitment, transaction_id, checksum) FROM STDIN") as copy:
-                                        for row in tid_copy_data:
-                                            await copy.write_row(row)
                             for validator in validators:
                                 validators_copy_data.append((block_db_id, validator))
                         else:
                             raise NotImplementedError
-                        # if subdag_copy_data:
-                        #     async with cur.copy(
-                        #         "COPY dag_vertex (authority_id, round, batch_id, "
-                        #         "author, timestamp, author_signature, index, committee_id) FROM STDIN"
-                        #     ) as copy:
-                        #         for row in subdag_copy_data:
-                        #             await copy.write_row(row)
+                        print(f"execution 6  {time.perf_counter_ns() - timer} ns")
+                        timer = time.perf_counter_ns()
+
+                        if dag_vertex_signature_data:
+                            async with cur.copy("COPY dag_vertex_signature (vertex_id, signature, index) FROM STDIN") as copy:
+                                for row in dag_vertex_signature_data:
+                                    await copy.write_row(row)
+
+                        if dag_vertex_previous_id_data:
+                            async with cur.copy("COPY dag_vertex_previous_id (vertex_id, previous_vertex_id) FROM STDIN") as copy:
+                                for row in dag_vertex_previous_id_data:
+                                    await copy.write_row(row)
+
+                        if tid_copy_data:
+                            async with cur.copy("COPY dag_vertex_transmission_id (vertex_id, type, index, commitment, transaction_id, checksum) FROM STDIN") as copy:
+                                for row in tid_copy_data:
+                                    await copy.write_row(row)
+
                         if validators_copy_data:
                             async with cur.copy("COPY block_validator (block_id, validator) FROM STDIN") as copy:
                                 for row in validators_copy_data:
                                     await copy.write_row(row)
+                        print(f"execution 7  {time.perf_counter_ns() - timer} ns")
+                        timer = time.perf_counter_ns()
                         ignore_deploy_txids: list[str] = []
                         program_name_seen: dict[str, str] = {}
                         for confirmed_transaction in block.transactions:
@@ -1600,6 +1618,8 @@ class DatabaseInsert(DatabaseBase):
                                 async with cur.copy("COPY finalize_operation_update_kv (finalize_operation_id, mapping_id, key_id, value_id) FROM STDIN") as copy:
                                     for row in update_copy_data:
                                         await copy.write_row(row)
+                        print(f"execution 8  {time.perf_counter_ns() - timer} ns")
+                        timer = time.perf_counter_ns()
 
                         for index, ratify in enumerate(block.ratifications):
                             if isinstance(ratify, GenesisRatify):
@@ -1627,6 +1647,8 @@ class DatabaseInsert(DatabaseBase):
                                 )
                             else:
                                 raise NotImplementedError
+                        print(f"execution 9  {time.perf_counter_ns() - timer} ns")
+                        timer = time.perf_counter_ns()
 
                         address_puzzle_rewards: dict[str, int] = defaultdict(int)
 
@@ -1667,23 +1689,31 @@ class DatabaseInsert(DatabaseBase):
                                     pipe = self.redis.pipeline()
                                     pipe.hincrby("address_puzzle_reward", address, reward)
                                     await pipe.execute() # type: ignore
+                        print(f"execution 10 {time.perf_counter_ns() - timer} ns")
+                        timer = time.perf_counter_ns()
 
                         for aborted in block.aborted_transactions_ids:
                             await cur.execute(
                                 "INSERT INTO block_aborted_transaction_id (block_id, transaction_id) VALUES (%s, %s)",
                                 (block_db_id, str(aborted))
                             )
+                        print(f"execution 11 {time.perf_counter_ns() - timer} ns")
+                        timer = time.perf_counter_ns()
 
                         for aborted in block.aborted_solution_ids:
                             await cur.execute(
                                 "INSERT INTO block_aborted_solution_id (block_id, solution_id) VALUES (%s, %s)",
                                 (block_db_id, str(aborted))
                             )
+                        print(f"execution 12 {time.perf_counter_ns() - timer} ns")
+                        timer = time.perf_counter_ns()
 
                         await self._post_ratify(
                             cur, self.redis, block.height, block.round, block.header.metadata.timestamp,
                             block.ratifications.ratifications, address_puzzle_rewards, supply_tracker
                         )
+                        print(f"execution 13 {time.perf_counter_ns() - timer} ns")
+                        timer = time.perf_counter_ns()
 
                         if os.environ.get("DEBUG_MAPPING_DUMP", False):
                             async def read_redis_mapping(key: str) -> list[tuple[str, str]]:
@@ -1757,6 +1787,8 @@ class DatabaseInsert(DatabaseBase):
                             "UPDATE block SET total_supply = %s WHERE id = %s",
                             (supply_tracker.supply, block_db_id)
                         )
+                        print(f"execution 14 {time.perf_counter_ns() - timer} ns")
+                        timer = time.perf_counter_ns()
 
                         puzzle_diff = puzzle_reward - supply_tracker.actual_puzzle_reward
                         if puzzle_diff != 0:
@@ -1765,6 +1797,8 @@ class DatabaseInsert(DatabaseBase):
                                 "ON CONFLICT (name) DO UPDATE SET value = stats.value + %s",
                                 (puzzle_diff, puzzle_diff)
                             )
+                        print(f"execution 15 {time.perf_counter_ns() - timer} ns")
+                        timer = time.perf_counter_ns()
 
                         block_diff = int(block_reward) - supply_tracker.actual_block_reward
                         if block_diff != 0:
@@ -1817,6 +1851,7 @@ class DatabaseInsert(DatabaseBase):
                             await self.redis.delete("validator_last_epoch_apr")
                             await self.redis.hset("validator_last_epoch_apr", mapping={k: json.dumps(v) for k, v in validators_last_epoch_apr.items()})
                             await self.redis.execute_command("EXEC") # type: ignore
+                        print(f"execution 16 {time.perf_counter_ns() - timer} ns")
 
 
                         signal.pthread_sigmask(signal.SIG_BLOCK, {signal.SIGINT})
