@@ -373,10 +373,11 @@ class DatabaseInsert(DatabaseBase):
                     )
                 elif isinstance(transition_output, RecordTransitionOutput):
                     await cur.execute(
-                        "INSERT INTO transition_output_record (transition_output_id, commitment, checksum, record_ciphertext) "
-                        "VALUES (%s, %s, %s, %s)",
+                        "INSERT INTO transition_output_record (transition_output_id, commitment, checksum, record_ciphertext, sender_ciphertext) "
+                        "VALUES (%s, %s, %s, %s, %s)",
                         (transition_output_db_id, str(transition_output.commitment),
-                         str(transition_output.checksum), transition_output.record_ciphertext.dumps())
+                        str(transition_output.checksum), transition_output.record_ciphertext.dumps(),
+                        transition_output.sender_ciphertext.dumps())
                     )
                 elif isinstance(transition_output, ExternalRecordTransitionOutput):
                     await cur.execute(
@@ -399,7 +400,8 @@ class DatabaseInsert(DatabaseBase):
                     raise NotImplementedError
 
             await cur.execute(
-                "SELECT id FROM program WHERE program_id = %s", (str(transition.program_id),)
+                "SELECT id FROM program WHERE program_id = %s ORDER BY edition DESC",
+                (str(transition.program_id),)
             )
             if (res := await cur.fetchone()) is None:
                 raise RuntimeError("program in transition does not exist - unconfirmed transaction?")
@@ -683,7 +685,7 @@ class DatabaseInsert(DatabaseBase):
                     if (res := await cur.fetchone()) is None:
                         raise RuntimeError("database inconsistent")
                     deploy_transaction_db_id = res["id"]
-                    await DatabaseInsert._save_program(cur, transaction.deployment.program, deploy_transaction_db_id, transaction)
+                    await DatabaseInsert._save_program(cur, transaction.deployment.program, deploy_transaction_db_id, transaction, None)
 
                 elif isinstance(confirmed_transaction, AcceptedExecute):
                     await cur.execute(
@@ -731,14 +733,15 @@ class DatabaseInsert(DatabaseBase):
 
                 await self._update_address_stats(transaction)
 
-    async def save_builtin_program(self, program: Program):
+    async def save_builtin_program(self, program: Program, edition: int):
         async with self.write_pool.connection() as conn:
             async with conn.cursor() as cur:
-                await self._save_program(cur, program, None, None)
+                await self._save_program(cur, program, None, None, edition)
 
     @staticmethod
     async def _save_program(cur: psycopg.AsyncCursor[dict[str, Any]], program: Program,
-                            deploy_transaction_db_id: Optional[int], transaction: Optional[DeployTransaction]) -> None:
+                            deploy_transaction_db_id: Optional[int], transaction: Optional[DeployTransaction],
+                            edition: Optional[int]) -> None:
         imports = [str(x.program_id) for x in program.imports]
         mappings = list(map(str, program.mappings.keys()))
         interfaces = list(map(str, program.structs.keys()))
@@ -749,22 +752,22 @@ class DatabaseInsert(DatabaseBase):
             await cur.execute(
                 "INSERT INTO program "
                 "(transaction_deploy_id, program_id, import, mapping, interface, record, "
-                "closure, function, raw_data, is_helloworld, feature_hash, owner, signature, address) "
-                "VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s) RETURNING id",
+                "closure, function, raw_data, is_helloworld, feature_hash, owner, signature, address, edition) "
+                "VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s) RETURNING id",
                 (deploy_transaction_db_id, str(program.id), imports, mappings, interfaces, records,
                  closures, functions, program.dump(), program.is_helloworld(), program.feature_hash(),
                  str(transaction.owner.address), str(transaction.owner.signature),
-                 aleo_explorer_rust.program_id_to_address(str(program.id)))
+                 aleo_explorer_rust.program_id_to_address(str(program.id)), transaction.deployment.edition)
             )
         else:
             await cur.execute(
                 "INSERT INTO program "
                 "(program_id, import, mapping, interface, record, "
-                "closure, function, raw_data, is_helloworld, feature_hash, address) "
-                "VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s) RETURNING id",
+                "closure, function, raw_data, is_helloworld, feature_hash, address, edition) "
+                "VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s) RETURNING id",
                 (str(program.id), imports, mappings, interfaces, records,
                  closures, functions, program.dump(), program.is_helloworld(), program.feature_hash(),
-                 aleo_explorer_rust.program_id_to_address(str(program.id)))
+                 aleo_explorer_rust.program_id_to_address(str(program.id)), edition)
             )
         if (res := await cur.fetchone()) is None:
             raise Exception("failed to insert row into database")
@@ -1692,7 +1695,7 @@ class DatabaseInsert(DatabaseBase):
                         print(f"execution 10 {time.perf_counter_ns() - timer} ns")
                         timer = time.perf_counter_ns()
 
-                        for aborted in block.aborted_transactions_ids:
+                        for aborted in block.aborted_transaction_ids:
                             await cur.execute(
                                 "INSERT INTO block_aborted_transaction_id (block_id, transaction_id) VALUES (%s, %s)",
                                 (block_db_id, str(aborted))

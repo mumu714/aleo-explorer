@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+from typing import Awaitable, LiteralString
+
 from typing import Awaitable
 
 import psycopg
@@ -17,7 +19,9 @@ class DatabaseMigrate(DatabaseBase):
     # migration methods
     async def migrate(self):
         migrations: list[tuple[int, Callable[[psycopg.AsyncConnection[DictRow], Redis[str]], Awaitable[None]]]] = [
-            (1, self.migrate_1_add_address_transition_type)
+            (1, self.migrate_1_add_address_transition_type),
+            (2, self.migration_2_add_output_record_sender_ciphertext),
+            (3, self.migration_3_add_program_edition),
         ]
         async with self.pool.connection() as conn:
             async with conn.cursor() as cur:
@@ -104,3 +108,13 @@ class DatabaseMigrate(DatabaseBase):
                         "WHERE address = %s AND program_id = %s AND function_name = %s", 
                         (res["count"], atm["address"], atm["program_id"], atm["function_name"])
                     )
+
+    @staticmethod
+    async def migration_2_add_output_record_sender_ciphertext(conn: psycopg.AsyncConnection[DictRow], redis: Redis[str]):
+        await conn.execute(cast(LiteralString, open("db/migrate_5.sql").read()))
+
+    @staticmethod
+    async def migration_3_add_program_edition(conn: psycopg.AsyncConnection[DictRow], redis: Redis[str]):
+        await conn.execute("alter table program add edition integer default 0 not null")
+        await conn.execute("alter table program drop constraint program_pk2")
+        await conn.execute("alter table program add constraint program_pk2 unique (program_id, edition)")

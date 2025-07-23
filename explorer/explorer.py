@@ -84,6 +84,8 @@ class Explorer:
             await self.db.migrate()
             await self.check_clear()
             await self.check_dev_mode()
+            for program, edition in Network.builtin_programs:
+                await init_builtin_program(self.db, program, edition)
             await self.check_genesis()
             await self.check_revert()
             latest_height = await self.db.get_latest_height()
@@ -133,8 +135,6 @@ class Explorer:
 
     async def add_block(self, block: Block):
         if block in [Network.genesis_block, Network.dev_genesis_block]:
-            for program in Network.builtin_programs:
-                await init_builtin_program(self.db, program)
             await self.db.save_block(block)
             return
         if block.previous_hash != self.latest_block_hash:

@@ -156,6 +156,8 @@ async def execute_finalizer(db: Database, cur: Optional[psycopg.AsyncCursor[dict
                         default = load_plaintext_from_operand(c.default, registers, finalize_state)
                         value = PlaintextValue(plaintext=default)
                     else:
+                        if debug:
+                            print(f"get {transitions[transition_index]}/{mapping_id}[{key_id}] = {value}")
                         value = local_mapping_cache[mapping_id][key_id]["value"]
                 else:
                     if key_id not in mapping_cache[mapping_id]:
@@ -268,7 +270,11 @@ async def execute_finalizer(db: Database, cur: Optional[psycopg.AsyncCursor[dict
 
             elif isinstance(c, AwaitCommand):
                 call_future = load_future_from_register(c.register, registers, finalize_state)
-                call_program = await get_program(db, str(call_future.program_id))
+                call_program_id = call_future.program_id
+                latest_edition = await db.get_program_latest_edition(str(call_program_id))
+                if latest_edition is None:
+                    raise RuntimeError("program not found")
+                call_program = await get_program(db, str(call_program_id), latest_edition)
                 if not call_program:
                     raise RuntimeError("program not found")
 

@@ -1,10 +1,11 @@
 from __future__ import annotations
 
+from psycopg.rows import DictRow
+
 from aleo_types import *
 from explorer.types import Message as ExplorerMessage
 from .base import DatabaseBase
 import time
-
 
 class DatabaseProgram(DatabaseBase):
 
@@ -30,11 +31,11 @@ class DatabaseProgram(DatabaseBase):
                 try:
                     if no_helloworld:
                         await cur.execute(
-                            "SELECT COUNT(*) FROM program "
+                            "SELECT COUNT(DISTINCT program_id) FROM program "
                             "WHERE feature_hash NOT IN (SELECT hash FROM program_filter_hash)"
                         )
                     else:
-                        await cur.execute("SELECT COUNT(*) FROM program")
+                        await cur.execute("SELECT COUNT(DISTINCT program_id) FROM program")
                     if (res := await cur.fetchone()) is None:
                         return 0
                     return res['count']
@@ -48,15 +49,20 @@ class DatabaseProgram(DatabaseBase):
                 try:
                     where = "WHERE feature_hash NOT IN (SELECT hash FROM program_filter_hash) " if no_helloworld else ""
                     await cur.execute(
-                        "SELECT p.program_id, b.height, t.transaction_id, SUM(pf.called) as called "
+                        "SELECT p.program_id, b.height, t.transaction_id, SUM(pf.called) as called, p.edition "
                         "FROM program p "
+                        "JOIN ("
+                        "  SELECT program_id, MAX(edition) as edition "
+                        "  FROM program "
+                        "  GROUP BY program_id"
+                        ") p2 on p.program_id = p2.program_id AND p.edition = p2.edition "
                         "JOIN transaction_deploy td on p.transaction_deploy_id = td.id "
                         "JOIN transaction t on td.transaction_id = t.id "
                         "JOIN confirmed_transaction ct on t.confirmed_transaction_id = ct.id "
                         "JOIN block b on ct.block_id = b.id "
                         "JOIN program_function pf on p.id = pf.program_id "
                         f"{where}"
-                        "GROUP BY p.program_id, b.height, t.transaction_id "
+                        "GROUP BY p.program_id, b.height, p.id, t.transaction_id, p.edition "
                         "ORDER BY SUM(pf.called) DESC "
                         "LIMIT %s OFFSET %s",
                         (end - start, start)
@@ -71,11 +77,17 @@ class DatabaseProgram(DatabaseBase):
             async with conn.cursor() as cur:
                 try:
                     await cur.execute(
-                        "SELECT p.program_id, SUM(pf.called) as called "
+                        "SELECT p.program_id, SUM(pf.called) as called, p.edition "
                         "FROM program p "
+                        "JOIN ("
+                        "  SELECT program_id, MAX(edition) as edition "
+                        "  FROM program "
+                        "  GROUP BY program_id"
+                        ") p2 on p.program_id = p2.program_id AND p.edition = p2.edition "
                         "JOIN program_function pf on p.id = pf.program_id "
                         "WHERE p.transaction_deploy_id IS NULL "
-                        "GROUP BY p.program_id "
+                        "GROUP BY p.program_id, p.edition "
+                        "LIMIT 1"
                     )
                     return await cur.fetchall()
                 except Exception as e:
@@ -89,6 +101,11 @@ class DatabaseProgram(DatabaseBase):
                     await cur.execute(
                         "SELECT p.program_id, b.height, t.transaction_id, SUM(pf.called) as called "
                         "FROM program p "
+                        "JOIN ("
+                        "  SELECT program_id, MAX(edition) as edition "
+                        "  FROM program "
+                        "  GROUP BY program_id"
+                        ") p2 on p.program_id = p2.program_id AND p.edition = p2.edition "
                         "JOIN transaction_deploy td on p.transaction_deploy_id = td.id "
                         "JOIN transaction t on td.transaction_id = t.id "
                         "JOIN confirmed_transaction ct on t.confirmed_transaction_id = ct.id "
@@ -105,6 +122,21 @@ class DatabaseProgram(DatabaseBase):
                     await self.message_callback(ExplorerMessage(ExplorerMessage.Type.DatabaseError, e))
                     raise
 
+    async def get_program_latest_edition(self, program_id: str) -> int | None:
+        async with self.pool.connection() as conn:
+            async with conn.cursor() as cur:
+                try:
+                    await cur.execute(
+                        "SELECT MAX(edition) as edition FROM program WHERE program_id = %s",
+                        (program_id,)
+                    )
+                    res = await cur.fetchone()
+                    if res is None:
+                        return None
+                    return res["edition"]
+                except Exception as e:
+                    await self.message_callback(ExplorerMessage(ExplorerMessage.Type.DatabaseError, e))
+                    raise
 
     async def get_block_by_program_id(self, program_id: str) -> Block | None:
         async with self.pool.connection() as conn:
@@ -243,11 +275,14 @@ class DatabaseProgram(DatabaseBase):
                     await self.message_callback(ExplorerMessage(ExplorerMessage.Type.DatabaseError, e))
                     raise
 
-    async def get_program(self, program_id: str) -> Optional[bytes]:
+    async def get_program(self, program_id: str, edition: int) -> Optional[bytes]:
         async with self.pool.connection() as conn:
             async with conn.cursor() as cur:
                 try:
-                    await cur.execute("SELECT raw_data FROM program WHERE program_id = %s", (program_id,))
+                    await cur.execute(
+                        "SELECT raw_data FROM program WHERE program_id = %s AND edition = %s",
+                        (program_id, edition)
+                    )
                     res = await cur.fetchone()
                     if res is None:
                         return None
