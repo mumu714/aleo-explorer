@@ -17,8 +17,8 @@ class DatabaseProgram(DatabaseBase):
                     await cur.execute(
                         "SELECT * FROM program_function "
                         "JOIN program ON program.id = program_function.program_id "
-                        "WHERE program.program_id = %s AND name = %s",
-                        (program_id, function_name)
+                        "WHERE program.program_id = %s AND name = %s AND edition = %s",
+                        (program_id, function_name, 1)
                     )
                     return await cur.fetchone()
                 except Exception as e:
@@ -148,8 +148,8 @@ class DatabaseProgram(DatabaseBase):
                         "JOIN program p on td.id = p.transaction_deploy_id "
                         "JOIN confirmed_transaction ct on ct.id = tx.confirmed_transaction_id "
                         "JOIN block b on ct.block_id = b.id "
-                        "WHERE p.program_id = %s",
-                        (program_id,)
+                        "WHERE p.program_id = %s AND p.edition = %s",
+                        (program_id,1)
                     )
                     height = await cur.fetchone()
                     if height is None:
@@ -169,8 +169,8 @@ class DatabaseProgram(DatabaseBase):
                         "JOIN transaction t on ct.id = t.confirmed_transaction_id "
                         "JOIN transaction_deploy td on t.id = td.transaction_id "
                         "JOIN program p on td.id = p.transaction_deploy_id "
-                        "WHERE p.program_id = %s",
-                        (program_id,)
+                        "WHERE p.program_id = %s AND p.edition = %s",
+                        (program_id,1)
                     )
                     data = await cur.fetchone()
                     if data is None:
@@ -226,8 +226,8 @@ class DatabaseProgram(DatabaseBase):
                 try:
                     await cur.execute(
                         "SELECT COUNT(*) FROM program "
-                        "WHERE feature_hash = (SELECT feature_hash FROM program WHERE program_id = %s)",
-                        (program_id,)
+                        "WHERE feature_hash = (SELECT feature_hash FROM program WHERE program_id = %s AND edition = %s)",
+                        (program_id,1)
                     )
                     if (res := await cur.fetchone()) is None:
                         raise ValueError(f"Program {program_id} not found")
@@ -241,8 +241,8 @@ class DatabaseProgram(DatabaseBase):
             async with conn.cursor() as cur:
                 try:
                     await cur.execute(
-                        "SELECT feature_hash FROM program WHERE program_id = %s",
-                        (program_id,)
+                        "SELECT feature_hash FROM program WHERE program_id = %s  AND p.edition = %s",
+                        (program_id,1)
                     )
                     if (res := await cur.fetchone()) is None:
                         return None
@@ -296,7 +296,7 @@ class DatabaseProgram(DatabaseBase):
         async with self.pool.connection() as conn:
             async with conn.cursor() as cur:
                 try:
-                    await cur.execute("SELECT leo_source FROM program WHERE program_id = %s", (program_id,))
+                    await cur.execute("SELECT leo_source FROM program WHERE program_id = %s AND edition = %s", (program_id,1))
                     if (res := await cur.fetchone()) is None:
                         return None
                     return res['leo_source']
@@ -309,7 +309,7 @@ class DatabaseProgram(DatabaseBase):
             async with conn.cursor() as cur:
                 try:
                     await cur.execute(
-                        "UPDATE program SET leo_source = %s WHERE program_id = %s", (source_code, program_id)
+                        "UPDATE program SET leo_source = %s WHERE program_id = %s AND edition = %s", (source_code, program_id, 1)
                     )
                 except Exception as e:
                     await self.message_callback(ExplorerMessage(ExplorerMessage.Type.DatabaseError, e))

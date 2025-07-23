@@ -156,9 +156,9 @@ async def execute_finalizer(db: Database, cur: Optional[psycopg.AsyncCursor[dict
                         default = load_plaintext_from_operand(c.default, registers, finalize_state)
                         value = PlaintextValue(plaintext=default)
                     else:
+                        value = local_mapping_cache[mapping_id][key_id]["value"]
                         if debug:
                             print(f"get {transitions[transition_index]}/{mapping_id}[{key_id}] = {value}")
-                        value = local_mapping_cache[mapping_id][key_id]["value"]
                 else:
                     if key_id not in mapping_cache[mapping_id]:
                         if isinstance(c, GetCommand):
