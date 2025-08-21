@@ -18,7 +18,7 @@ from db.block import DatabaseBlock
 from disasm.utils import value_type_to_mode_type_str, plaintext_type_to_str
 from explorer.types import Message as ExplorerMessage
 from util.global_cache import global_mapping_cache
-from .base import DatabaseBase, profile
+from .base import DatabaseBase, profile  # pyright: ignore [reportUnknownVariableType, reportAttributeAccessIssue]
 from .util import DatabaseUtil
 from .address import DatabaseAddress
 
@@ -685,7 +685,14 @@ class DatabaseInsert(DatabaseBase):
                     if (res := await cur.fetchone()) is None:
                         raise RuntimeError("database inconsistent")
                     deploy_transaction_db_id = res["id"]
-                    await DatabaseInsert._save_program(cur, transaction.deployment.program, deploy_transaction_db_id, transaction, None)
+                    deployment = transaction.deployment
+                    if isinstance(deployment, DeploymentV1):
+                        checksum = None
+                    elif isinstance(deployment, DeploymentV2):
+                        checksum = bytes(deployment.program_checksum)
+                    else:
+                        raise NotImplementedError
+                    await DatabaseInsert._save_program(cur, transaction.deployment.program, deploy_transaction_db_id, transaction, None, checksum)
 
                 elif isinstance(confirmed_transaction, AcceptedExecute):
                     await cur.execute(
@@ -736,12 +743,12 @@ class DatabaseInsert(DatabaseBase):
     async def save_builtin_program(self, program: Program, edition: int):
         async with self.write_pool.connection() as conn:
             async with conn.cursor() as cur:
-                await self._save_program(cur, program, None, None, edition)
+                await self._save_program(cur, program, None, None, edition, None)
 
     @staticmethod
     async def _save_program(cur: psycopg.AsyncCursor[dict[str, Any]], program: Program,
                             deploy_transaction_db_id: Optional[int], transaction: Optional[DeployTransaction],
-                            edition: Optional[int]) -> None:
+                            edition: Optional[int], checksum: Optional[bytes]) -> None:
         imports = [str(x.program_id) for x in program.imports]
         mappings = list(map(str, program.mappings.keys()))
         interfaces = list(map(str, program.structs.keys()))
@@ -752,14 +759,14 @@ class DatabaseInsert(DatabaseBase):
             await cur.execute(
                 "INSERT INTO program "
                 "(transaction_deploy_id, program_id, import, mapping, interface, record, "
-                "closure, function, raw_data, is_helloworld, feature_hash, owner, signature, address, edition) "
-                "VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s) RETURNING id",
+                "closure, function, raw_data, is_helloworld, feature_hash, owner, signature, address, edition, checksum) "
+                "VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s) RETURNING id",
                 (deploy_transaction_db_id, str(program.id), imports, mappings, interfaces, records,
                  closures, functions, program.dump(), program.is_helloworld(), program.feature_hash(),
                  str(transaction.owner.address), str(transaction.owner.signature),
-                 aleo_explorer_rust.program_id_to_address(str(program.id)), transaction.deployment.edition)
+                 aleo_explorer_rust.program_id_to_address(str(program.id)), transaction.deployment.edition, checksum)
             )
-        else:
+        else: # builtin programs
             await cur.execute(
                 "INSERT INTO program "
                 "(program_id, import, mapping, interface, record, "
@@ -798,7 +805,7 @@ class DatabaseInsert(DatabaseBase):
                 (program_db_id, str(function.name), inputs, input_modes, outputs, output_modes, finalizes)
             )
 
-    @profile
+    @profile  # pyright: ignore [reportUntypedFunctionDecorator]
     async def _update_committee_bonded_delegated_map(
         self,
         cur: psycopg.AsyncCursor[DictRow],
@@ -1112,7 +1119,7 @@ class DatabaseInsert(DatabaseBase):
     
 
     @staticmethod
-    @profile
+    @profile  # pyright: ignore [reportUntypedFunctionDecorator]
     def _check_committee_staker_match(committee_members: dict[Address, tuple[u64, bool_, u8]],
                                       stakers: dict[Address, tuple[Address, u64]]):
         address_stakes: dict[Address, u64] = defaultdict(lambda: u64())
@@ -1135,7 +1142,7 @@ class DatabaseInsert(DatabaseBase):
 
 
     @staticmethod
-    @profile
+    @profile  # pyright: ignore [reportUntypedFunctionDecorator]
     def _stake_rewards(committee_members: dict[Address, tuple[u64, bool_, u8]],
                        stakers: dict[Address, tuple[Address, u64]], block_reward: u64):
         total_stake = sum(x[0] for x in committee_members.values())
@@ -1184,7 +1191,7 @@ class DatabaseInsert(DatabaseBase):
         return new_stakers, stake_rewards, stake_delegate_reward
 
     @staticmethod
-    @profile
+    @profile  # pyright: ignore [reportUntypedFunctionDecorator]
     def _next_committee_members(committee_members: dict[Address, tuple[u64, bool_, u8]],
                                 stakers: dict[Address, tuple[Address, u64]]) -> dict[Address, tuple[u64, bool_, u8]]:
         validators: dict[Address, u64] = defaultdict(lambda: u64())
@@ -1212,7 +1219,7 @@ class DatabaseInsert(DatabaseBase):
             delegated[validator] += amount
         return delegated
 
-    @profile
+    @profile  # pyright: ignore [reportUntypedFunctionDecorator]
     async def _post_ratify(self, cur: psycopg.AsyncCursor[dict[str, Any]], redis_conn: Redis[str], height: int, round_: int,
                            timestamp: int, ratifications: list[Ratify], address_puzzle_rewards: dict[str, int], supply_tracker: _SupplyTracker):
         from interpreter.interpreter import global_mapping_cache
@@ -1354,7 +1361,7 @@ class DatabaseInsert(DatabaseBase):
                         else:
                             await redis_conn.delete(backup_key)
 
-    @profile
+    @profile  # pyright: ignore [reportUntypedFunctionDecorator]
     async def _save_block(self, block: Block):
         async with self.write_pool.connection() as conn:
             signal.pthread_sigmask(signal.SIG_BLOCK, {signal.SIGINT})

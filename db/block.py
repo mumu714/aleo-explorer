@@ -10,7 +10,7 @@ import time
 from aleo_types import *
 from explorer.types import Message as ExplorerMessage
 from node import Network
-from .base import DatabaseBase, profile
+from .base import DatabaseBase, profile  # pyright: ignore [reportAttributeAccessIssue, reportUnknownVariableType]
 
 
 class DatabaseBlock(DatabaseBase):
@@ -39,7 +39,7 @@ class DatabaseBlock(DatabaseBase):
         )
 
     @staticmethod
-    @profile
+    @profile  # pyright: ignore [reportUntypedFunctionDecorator]
     async def _load_future(conn: psycopg.AsyncConnection[DictRow], transition_output_db_id: Optional[int],
                            future_argument_db_id: Optional[int]) -> Optional[Future]:
         async with conn.cursor() as cur:
@@ -87,7 +87,7 @@ class DatabaseBlock(DatabaseBase):
             )
 
     @staticmethod
-    @profile
+    @profile  # pyright: ignore [reportUntypedFunctionDecorator]
     async def _get_transition_from_dict(transition: dict[str, Any], conn: psycopg.AsyncConnection[DictRow]):
         async with conn.cursor() as cur:
             await cur.execute("SELECT * FROM get_transition_inputs(%s)", (transition["id"],))
@@ -252,6 +252,22 @@ class DatabaseBlock(DatabaseBase):
                     await self.message_callback(ExplorerMessage(ExplorerMessage.Type.DatabaseError, e))
                     raise
 
+    async def get_block_from_timestamp(self, timestamp: int) -> Block | None:
+        async with self.pool.connection() as conn:
+            async with conn.cursor() as cur:
+                try:
+                    await cur.execute(
+                        "SELECT * FROM block WHERE timestamp < %s ORDER BY timestamp DESC LIMIT 1",
+                        (timestamp,)
+                    )
+                    block = await cur.fetchone()
+                    if block is None:
+                        return None
+                    return await self._get_full_block(block, conn)
+                except Exception as e:
+                    await self.message_callback(ExplorerMessage(ExplorerMessage.Type.DatabaseError, e))
+                    raise
+
     async def get_block_confirm_time(self, height: int) -> Optional[int]:
         async with self.pool.connection() as conn:
             async with conn.cursor() as cur:
@@ -357,11 +373,12 @@ class DatabaseBlock(DatabaseBase):
                             raise ValueError("fee transition not found")
                         tx = DeployTransaction(
                             id_=TransactionID.loads(transaction["transaction_id"]),
-                            deployment=Deployment(
+                            deployment=DeploymentV1(
                                 edition=u16(),
                                 program=Program(
                                     id_=ProgramID.loads("placeholder.aleo"),
                                     imports=Vec[Import, u8]([]),
+                                    constructor=Option[Constructor](None),
                                     mappings={},
                                     structs={},
                                     records={},
@@ -413,7 +430,7 @@ class DatabaseBlock(DatabaseBase):
                             await cur.execute("SELECT * FROM transition WHERE fee_id = %s", (fee["id"],))
                             fee_transition = await cur.fetchone()
                             if fee_transition is None:
-                                raise RuntimeError("database inconsistent")
+                                raise ValueError("fee transition not found")
                             fee = Fee(
                                 transition=await self._get_transition_from_dict(fee_transition, conn),
                                 global_state_root=StateRoot.loads(fee["global_state_root"]),
@@ -561,26 +578,51 @@ class DatabaseBlock(DatabaseBase):
             match confirmed_transaction["confirmed_transaction_type"]:
                 case ConfirmedTransaction.Type.AcceptedDeploy.name | ConfirmedTransaction.Type.RejectedDeploy.name:
                     deploy_transaction = transaction
+                    await cur.execute(
+                        "SELECT raw_data, owner, signature, checksum FROM program "
+                        "WHERE transaction_deploy_id = %s AND edition = %s",
+                        (deploy_transaction["transaction_deploy_id"], deploy_transaction["edition"])
+                    )
+                    program_data = await cur.fetchone()
                     if confirmed_transaction["confirmed_transaction_type"] == ConfirmedTransaction.Type.AcceptedDeploy.name:
                         await cur.execute(
-                            "SELECT raw_data, owner, signature FROM program WHERE transaction_deploy_id = %s",
+                            "SELECT raw_data, owner, signature, checksum FROM program WHERE transaction_deploy_id = %s",
                             (deploy_transaction["transaction_deploy_id"],)
                         )
                         program_data = await cur.fetchone()
                         if program_data is None:
                             raise RuntimeError("database inconsistent")
                         program = program_data["raw_data"]
-                        deployment = Deployment(
-                            edition=u16(deploy_transaction["edition"]),
-                            program=Program.load(BytesIO(program)),
-                            verifying_keys=Vec[Tuple[Identifier, VerifyingKey, Certificate], u16].load(BytesIO(deploy_transaction["verifying_keys"])),
-                        )
+                        edition = u16(deploy_transaction["edition"])
+                        program = Program.load(BytesIO(program))
+                        verifying_keys = Vec[Tuple[Identifier, VerifyingKey, Certificate], u16].load(BytesIO(deploy_transaction["verifying_keys"]))
+                        if program_data["checksum"] is None:
+                            deployment = DeploymentV1(
+                                edition=edition,
+                                program=program,
+                                verifying_keys=verifying_keys
+                            )
+                        else:
+                            deployment = DeploymentV2(
+                                edition=edition,
+                                program=program,
+                                verifying_keys=verifying_keys,
+                                program_checksum=Vec[u8, FixedSize[32]].load(BytesIO(program_data["checksum"])),
+                                program_owner=Address.loads(program_data["owner"]),
+                            )
+
                     else:
-                        deployment = Deployment(
+                        if program_data is not None:
+                            program = Program.load(BytesIO(program_data["raw_data"]))
+                            program_id = program.id
+                        else:
+                            program_id = ProgramID.loads(deploy_transaction["program_id"])
+                        deployment = DeploymentV1(
                             edition=u16(deploy_transaction["edition"]),
                             program=Program(
-                                id_=ProgramID.loads("placeholder.aleo"),
+                                id_=program_id,
                                 imports=Vec[Import, u8]([]),
+                                constructor=Option[Constructor](None),
                                 mappings={},
                                 structs={},
                                 records={},
@@ -620,28 +662,36 @@ class DatabaseBlock(DatabaseBase):
                                 signature=Signature.loads(program_data["signature"])
                             )
                         )
+                        ctx = AcceptedDeploy(
+                            index=u32(confirmed_transaction["index"]),
+                            transaction=tx,
+                            finalize=Vec[FinalizeOperation, u16](f),
+                        )
                     else:
-                        tx = DeployTransaction(
+                        tx = FeeTransaction(
                             id_=TransactionID.loads(transaction["transaction_id"]),
-                            deployment=deployment,
+
                             fee=fee,
-                            owner=ProgramOwner(
-                                address=Address.loads(deploy_transaction["owner"]),
-                                signature=Signature(
-                                    challenge=Scalar(0),
-                                    response=Scalar(0),
-                                    compute_key=ComputeKey(
-                                        pk_sig=Group(0),
-                                        pr_sig=Group(0),
+                        )
+                        ctx = RejectedDeploy(
+                            index=u32(confirmed_transaction["index"]),
+                            transaction=tx,
+                            finalize=Vec[FinalizeOperation, u16](f),
+                            rejected=RejectedDeployment(
+                                program_owner=ProgramOwner(
+                                    address=Address.loads(deploy_transaction["owner"]),
+                                    signature=Signature(
+                                        challenge=Scalar(0),
+                                        response=Scalar(0),
+                                        compute_key=ComputeKey(
+                                            pk_sig=Group(0),
+                                            pr_sig=Group(0),
+                                        )
                                     )
-                                )
+                                ),
+                                deploy = deployment,
                             )
                         )
-                    ctx = AcceptedDeploy(
-                        index=u32(confirmed_transaction["index"]),
-                        transaction=tx,
-                        finalize=Vec[FinalizeOperation, u16](f),
-                    )
                 case ConfirmedTransaction.Type.AcceptedExecute.name | ConfirmedTransaction.Type.RejectedExecute.name:
                     execute_transaction = transaction
                     await cur.execute(

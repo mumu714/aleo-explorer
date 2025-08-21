@@ -1,6 +1,5 @@
 import asyncio
 import logging
-import multiprocessing
 import os
 import time
 from typing import Any
@@ -22,25 +21,18 @@ from middleware.server_timing import ServerTimingMiddleware
 from util.cache import Cache
 from starlette.requests import Request
 from starlette.responses import JSONResponse
-from util.set_proc_title import set_proc_title
+from util.set_proc_title import set_thread_title
+from .address_routes import address_staking_route, address_delegated_route, address_program_id_route
 from .execute_routes import preview_finalize_route
 from .mapping_routes import mapping_route, mapping_list_route, mapping_value_list_route, mapping_key_count_route
 from .solution_routes import solution_by_id_route
 from .utils import get_remote_height
 
 
-class UvicornServer(multiprocessing.Process):
+class UvicornServer(uvicorn.Server):
 
-    def __init__(self, config: uvicorn.Config):
-        super().__init__()
-        self.server = uvicorn.Server(config=config)
-        self.config = config
-
-    def stop(self):
-        self.terminate()
-
-    def run(self, *args: Any, **kwargs: Any):
-        self.server.run()
+    def install_signal_handlers(self):
+        pass
 
 async def status_route(request: Request):
     session = request.app.state.session
@@ -67,6 +59,9 @@ async def status_route(request: Request):
 
 
 routes = [
+    Route("/v{version:int}/address/staking_info/{address}", address_staking_route),
+    Route("/v{version:int}/address/delegated/{address}", address_delegated_route),
+    Route("/v{version:int}/address/program_id/{address}", address_program_id_route),
     Route("/v{version:int}/mapping/get_value/{program_id}/{mapping}/{key}", mapping_route),
     Route("/v{version:int}/mapping/list_program_mappings/{program_id}", mapping_list_route),
     Route("/v{version:int}/mapping/list_program_mapping_values/{program_id}/{mapping}", mapping_value_list_route),
@@ -74,6 +69,7 @@ routes = [
     Route("/v{version:int}/simulate_execution/finalize", preview_finalize_route, methods=["POST"]),
     Route("/v{version:int}/solution/{solution_id}", solution_by_id_route),
     Route("/v{version:int}/status", status_route),
+
 ]
 
 async def startup():
@@ -90,7 +86,7 @@ async def startup():
     app.state.db = db
     app.state.program_cache = Cache()
     app.state.session = aiohttp.ClientSession(timeout=aiohttp.ClientTimeout(total=1))
-    set_proc_title("aleo-explorer: api")
+    set_thread_title("aleo-explorer: api")
 
 log_format = '\033[92mAPI\033[0m: \033[94m%(client_addr)s\033[0m - - %(t)s \033[96m"%(request_line)s"\033[0m \033[93m%(s)s\033[0m %(B)s "%(f)s" "%(a)s" %(L)s'
 # noinspection PyTypeChecker
@@ -99,7 +95,7 @@ app = Starlette(
     routes=routes,
     on_startup=[startup],
     middleware=[
-        Middleware(AccessLoggerMiddleware, format=log_format),
+        Middleware(AccessLoggerMiddleware, format=log_format, logger_name="api"),
         Middleware(CORSMiddleware, allow_origins=['*']),
         Middleware(ServerTimingMiddleware),
         Middleware(APIQuotaMiddleware),
@@ -118,6 +114,6 @@ async def run():
     logging.getLogger("uvicorn.access").handlers = []
     server = UvicornServer(config=config)
 
-    server.start()
+    await server.serve()
     while True:
         await asyncio.sleep(3600)

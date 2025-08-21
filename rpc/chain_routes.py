@@ -737,7 +737,7 @@ async def transition_route(request: Request):
             if isinstance(argument, PlaintextArgument):
                 struct_type = ""
                 if isinstance(argument.plaintext, StructPlaintext):
-                    program = await get_program(db, str(transition.program_id))
+                    program = await get_program(db, str(transition.program_id), 0)
                     if program is None:
                         raise HTTPException(status_code=550, detail="Program not found")
                     finalize = cast(Finalize, program.functions[transition.function_name].finalize.value)

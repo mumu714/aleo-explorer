@@ -4,7 +4,7 @@ from typing import Protocol, runtime_checkable, Self, Type as TType
 from .serialize import Serialize
 from .utils import *
 
-
+@runtime_checkable
 class Sized(Protocol):
     size: int
 

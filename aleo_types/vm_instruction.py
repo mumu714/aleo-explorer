@@ -151,7 +151,7 @@ class Identifier(Serializable, JSONSerialize):
     def loads(cls, data: str):
         return cls(value=data)
 
-    def json(self) -> JSONType:
+    def json(self, compatible: bool = False) -> JSONType:
         return self.data
 
     def __str__(self):
@@ -193,7 +193,7 @@ class ProgramID(Serializable, JSONSerialize):
         (name, network) = data.split(".")
         return cls(name=Identifier(value=name), network=Identifier(value=network))
 
-    def json(self) -> JSONType:
+    def json(self, compatible: bool = False) -> JSONType:
         return str(self)
 
     def __str__(self):
@@ -256,7 +256,7 @@ class VarInt(int, Serializable, JSONSerialize):
             value = u8(value)
         return cls(value)
 
-    def json(self) -> JSONType:
+    def json(self, compatible: bool = False) -> JSONType:
         return int(self)
 
 
@@ -368,6 +368,9 @@ class Operand(EnumBaseSerialize, Serialize, JSONSerialize, RustEnum):
         Caller = 4
         BlockHeight = 5
         NetworkID = 6
+        Checksum = 7
+        Edition = 8
+        ProgramOwner = 9
 
     @classmethod
     def load(cls, data: BytesIO):
@@ -386,6 +389,12 @@ class Operand(EnumBaseSerialize, Serialize, JSONSerialize, RustEnum):
             return BlockHeightOperand.load(data)
         elif type_ == cls.Type.NetworkID:
             return NetworkIDOperand.load(data)
+        elif type_ == cls.Type.Checksum:
+            return ChecksumOperand.load(data)
+        elif type_ == cls.Type.Edition:
+            return EditionOperand.load(data)
+        elif type_ == cls.Type.ProgramOwner:
+            return ProgramOwnerOperand.load(data)
         else:
             raise ValueError("unknown operand type")
 
@@ -484,6 +493,44 @@ class NetworkIDOperand(Operand):
     def load(cls, data: BytesIO):
         return cls()
 
+class ChecksumOperand(Operand):
+    type = Operand.Type.Checksum
+
+    def __init__(self, *, program_id: Option[ProgramID]):
+        self.program_id = program_id
+
+    def dump(self) -> bytes:
+        return self.type.dump() + self.program_id.dump()
+
+    @classmethod
+    def load(cls, data: BytesIO):
+        return cls(program_id=Option[ProgramID].load(data))
+
+class EditionOperand(Operand):
+    type = Operand.Type.Edition
+
+    def __init__(self, *, program_id: Option[ProgramID]):
+        self.program_id = program_id
+
+    def dump(self) -> bytes:
+        return self.type.dump() + self.program_id.dump()
+
+    @classmethod
+    def load(cls, data: BytesIO):
+        return cls(program_id=Option[ProgramID].load(data))
+
+class ProgramOwnerOperand(Operand):
+    type = Operand.Type.ProgramOwner
+
+    def __init__(self, *, program_id: Option[ProgramID]):
+        self.program_id = program_id
+
+    def dump(self) -> bytes:
+        return self.type.dump() + self.program_id.dump()
+
+    @classmethod
+    def load(cls, data: BytesIO):
+        return cls(program_id=Option[ProgramID].load(data))
 
 N = TypeVar("N", bound=FixedSize)
 
@@ -1132,7 +1179,7 @@ class HashInstruction(Serializable, JSONSerialize, Generic[V]):
         destination_type = PlaintextType.load(data)
         return cls(operands=(op1, op2), destination=destination, destination_type=destination_type)
 
-    def json(self) -> JSONType:
+    def json(self, compatible: bool = False) -> JSONType:
         return {
             "operands": [op.json() for op in self.operands if op],
             "destination": self.destination.json(),

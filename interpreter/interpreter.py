@@ -3,9 +3,10 @@ import psycopg
 from aleo_types import *
 from aleo_types.cached import cached_get_key_id, cached_get_mapping_id
 from db import Database
-from interpreter.finalizer import execute_finalizer, ExecuteError, mapping_cache_read, profile
+from interpreter.finalizer import execute_finalizer, ExecuteError, mapping_cache_read, \
+    profile  # pyright: ignore [reportAttributeAccessIssue, reportUnknownVariableType]
 from interpreter.utils import FinalizeState
-from util.global_cache import global_mapping_cache, global_program_cache, MappingCacheDict, get_program
+from util.global_cache import global_mapping_cache, global_program_cache, get_program, MappingCacheDict
 
 
 async def init_builtin_program(db: Database, program: Program, edition: int):
@@ -66,9 +67,28 @@ async def finalize_deploy(db: Database, cur: psycopg.AsyncCursor[dict[str, Any]]
                     "mapping": mapping,
                 })
         rejected_reason = None
-    else:
+        owner = cast(DeployTransaction, transaction).owner.address
+    elif isinstance(confirmed_transaction, RejectedDeploy):
+        rejected = cast(RejectedDeployment, confirmed_transaction.rejected)
         expected_operations = confirmed_transaction.finalize
+        deployment = rejected.deploy
+        program = deployment.program
         rejected_reason = "(detailed reason not available)"
+        owner = rejected.program_owner.address
+    else:
+        raise NotImplementedError
+
+    if program.constructor.value is not None:
+        try:
+            operations.extend(
+                await execute_finalizer(
+                    db, cur, finalize_state, [TransitionID(b"\x00" * 32)], set(), program,
+                    Identifier(value="constructor"), [], mapping_cache, {},
+                    isinstance(confirmed_transaction, AcceptedDeploy), owner
+                )
+            )
+        except ExecuteError as e:
+            rejected_reason = f"execute error: {e}, at constructor, instruction \"{e.instruction}\""
     return expected_operations, operations, rejected_reason
 
 def load_input_from_arguments(arguments: list[Argument]) -> list[Value]:
@@ -194,7 +214,7 @@ async def finalize_execute(db: Database, cur: psycopg.AsyncCursor[dict[str, Any]
             program = await get_program(db, called_program_id, latest_edition)
             if not program:
                 raise RuntimeError("program not found")
-            
+
             transition_ids = [x.id for x in execution.transitions]
 
             async_order = await build_async_order(db, transition_ids, program, future.function_name)
@@ -239,7 +259,7 @@ async def finalize_execute(db: Database, cur: psycopg.AsyncCursor[dict[str, Any]
             operations.extend(await _execute_public_fee(db, cur, finalize_state, transition, mapping_cache, local_mapping_cache, True))
     return expected_operations, operations, reject_reason
 
-@profile
+@profile  # pyright: ignore [reportUntypedFunctionDecorator]
 async def finalize_block(db: Database, cur: psycopg.AsyncCursor[dict[str, Any]], block: Block) -> list[Optional[str]]:
     finalize_state = FinalizeState(block)
     reject_reasons: list[Optional[str]] = []
@@ -341,7 +361,7 @@ async def get_mapping_value(db: Database, program_id: str, mapping_name: str, ke
     key_plaintext = LiteralPlaintext(literal=Literal.loads(Literal.Type(mapping_key_type.literal_type.value), key))
     key_id = Field.loads(cached_get_key_id(program_id, mapping_name, key_plaintext.dump()))
     if key_id not in global_mapping_cache[mapping_id]:
-        raise ExecuteError(f"key {key} not found in mapping {mapping_id}", None, "", TransitionID.load(BytesIO(b"\x00" * 32)))
+        raise ExecuteError(f"key {key} not found in mapping {mapping_id}", None, "", )
     else:
         value = global_mapping_cache[mapping_id][key_id]["value"]
         if not isinstance(value, PlaintextValue):

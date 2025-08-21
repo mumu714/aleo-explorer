@@ -90,6 +90,7 @@ async def _load_args(db: Database, program: Program, program_cache: dict[str, Pr
 
 @use_program_cache
 async def preview_finalize_route(request: Request, program_cache: dict[str, Program]):
+    return JSONResponse({"error": "This endpoint is currently disabled"}, status_code=500)
     db: Database = request.app.state.db
     _ = request.path_params["version"]
     json = await request.json()
