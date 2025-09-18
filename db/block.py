@@ -574,6 +574,7 @@ class DatabaseBlock(DatabaseBase):
                     raise NotImplementedError
 
             transaction = confirmed_transaction
+            print("get_confirmed_transaction_from_dict", transaction["transaction_id"], flush=True)
             # TODO: store full program on rejected deploy so we dont need dummy data - should we?
             match confirmed_transaction["confirmed_transaction_type"]:
                 case ConfirmedTransaction.Type.AcceptedDeploy.name | ConfirmedTransaction.Type.RejectedDeploy.name:
@@ -824,8 +825,10 @@ class DatabaseBlock(DatabaseBase):
     @profile
     async def _get_full_block(block: dict[str, Any], conn: psycopg.AsyncConnection[DictRow]):
         async with conn.cursor() as cur:
+            print("_get_full_block height:", block["height"], block["id"], flush=True)
             await cur.execute("SELECT * FROM get_confirmed_transactions(%s)", (block["id"],))
             confirmed_transactions = await cur.fetchall()
+            print("_get_full_block:", confirmed_transactions, flush=True)
             ctxs: list[ConfirmedTransaction] = []
             for confirmed_transaction in confirmed_transactions:
                 ctxs.append(await DatabaseBlock.get_confirmed_transaction_from_dict(conn, confirmed_transaction))
@@ -1031,6 +1034,7 @@ class DatabaseBlock(DatabaseBase):
                 (start, end)
             )
             blocks = await cur.fetchall()
+            print("-------", len(blocks), flush=True)
             return [await DatabaseBlock._get_full_block(block, conn) for block in blocks]
 
     @staticmethod
