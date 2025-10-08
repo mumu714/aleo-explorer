@@ -443,3 +443,32 @@ class DatabaseMapping(DatabaseBase):
                 except Exception as e:
                     await self.message_callback(ExplorerMessage(ExplorerMessage.Type.DatabaseError, e))
                     raise
+
+    async def get_mapping_value_at_height(self, program_id: str, mapping: str, key_id: str, height: int) -> tuple[Optional[bytes], Optional[int]]:
+        async with self.pool.connection() as conn:
+            async with conn.cursor() as cur:
+                try:
+                    if program_id == "credits.aleo" and mapping in ["committee", "bonded", "delegated"]:
+                        # noinspection SqlResolve
+                        query = psycopg.sql.SQL("SELECT height, content FROM {} WHERE height <= %s ORDER BY height DESC LIMIT 1").format(psycopg.sql.Identifier(f"mapping_{mapping}_history"))
+                        await cur.execute(query, (height,))
+                        if (res := await cur.fetchone()) is None:
+                            return None, None
+                        mapping_data: dict[str, dict[str, str]] = res["content"]
+                        if (data := mapping_data.get(key_id)) is None:
+                            return None, None
+                        return bytes.fromhex(data["value"]), res["height"]
+                    await cur.execute(
+                        "SELECT value FROM mapping_history mh "
+                        "JOIN mapping m on mh.mapping_id = m.id "
+                        "WHERE m.program_id = %s AND m.mapping = %s AND mh.key_id = %s AND mh.height <= %s "
+                        "ORDER BY mh.id DESC "
+                        "LIMIT 1",
+                        (program_id, mapping, key_id, height)
+                    )
+                    if (res := await cur.fetchone()) is None:
+                        return None, None
+                    return res["value"], None
+                except Exception as e:
+                    await self.message_callback(ExplorerMessage(ExplorerMessage.Type.DatabaseError, e))
+                    raise

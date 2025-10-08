@@ -59,7 +59,21 @@ async def program_route(request: Request):
     program_id = request.query_params.get("id")
     if program_id is None:
         raise HTTPException(status_code=400, detail="Missing program id")
+    edition = request.path_params.get("edition", "0")
+    try:
+        edition = int(edition)
+    except ValueError:
+        return HTTPException(detail="Invalid edition", status_code=400)
+    if edition < 0:
+        return HTTPException(detail="Invalid edition", status_code=400)
+    
+    latest_edition = await db.get_program_latest_edition(program_id)
+    if latest_edition is None:
+        return HTTPException(detail="Program not found", status_code=404)
+    if edition > latest_edition:
+        return HTTPException(detail="Edition not found", status_code=404)
     block = await db.get_block_by_program_id(program_id)
+    
     if block:
         height = block.header.metadata.height
         deploy_time = block.header.metadata.timestamp
@@ -75,7 +89,7 @@ async def program_route(request: Request):
         deployment: Deployment = transaction.deployment
         program: Program = deployment.program
     else:
-        program_bytes = await db.get_program(program_id)
+        program_bytes = await db.get_program(program_id, edition)
         if not program_bytes:
             raise HTTPException(status_code=404, detail="Program not found")
         program = Program.load(BytesIO(program_bytes))
@@ -242,7 +256,14 @@ async def upload_source_route(request: Request):
     program_id = request.query_params.get("id")
     if program_id is None:
         raise HTTPException(status_code=400, detail="Missing program id")
-    program = await db.get_program(program_id)
+    edition = request.path_params.get("edition", "0")
+    try:
+        edition = int(edition)
+    except ValueError:
+        return HTTPException(detail="Invalid edition", status_code=400)
+    if edition < 0:
+        return HTTPException(detail="Invalid edition", status_code=400)
+    program = await db.get_program(program_id, edition)
     if program is None:
         raise HTTPException(status_code=404, detail="Program not found")
     if request.method == "POST":
@@ -281,7 +302,14 @@ async def submit_source_route(request: Request):
     program_id = form.get("id")
     if program_id is None or isinstance(program_id, UploadFile):
         return RedirectResponse(url=f"/upload_source?id={program_id}&message=Missing program id")
-    program = await db.get_program(program_id)
+    edition = request.path_params.get("edition", "0")
+    try:
+        edition = int(edition)
+    except ValueError:
+        return HTTPException(detail="Invalid edition", status_code=400)
+    if edition < 0:
+        return HTTPException(detail="Invalid edition", status_code=400)
+    program = await db.get_program(program_id, edition)
     if program is None:
         return RedirectResponse(url=f"/upload_source?id={program_id}&message=Program not found")
     source = form.get("source")
