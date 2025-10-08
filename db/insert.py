@@ -1341,7 +1341,29 @@ class DatabaseInsert(DatabaseBase):
                     print("redis backup exists, rolling back")
                     await redis_conn.copy(backup_key, key, replace=True) # type: ignore[arg-type]
 
+    async def rotate_redis_history(self, redis_conn: Redis[str], keys: list[str], height: int, keep: int = 3,) -> None:
+        """
+        在 height % 10000 == 0 时：
+        1) 为每个 key 生成/覆盖一次 {key}:history:{height} 的快照
+        2) 扫描 {key}:history:*，只保留最新 keep 份，删除更旧的
+        """
+        if height != 0 and height % 10000 == 0:
+            for key in keys:
+                if await redis_conn.exists(key) == 1:
+                    history_key = f"{key}:history:{height}"
+                    await redis_conn.copy(key, history_key)
+                    cursor, history_keys = await redis_conn.scan(0, f"{key}:history:*", 500)
+                    history_keys = sorted(history_keys, key=lambda x: int(x.split(":")[-1]))
+                    print("redis hisotry", history_keys, flush=True)
+                    if len(history_keys) > keep:
+                        oldest_history = history_keys[0]
+                        oldest_history_height = int(oldest_history.split(":")[-1])
+                        print(f"delete redis hisotry: {key}:history:{oldest_history_height}", flush=True)
+                        await redis_conn.delete(f"{key}:history:{oldest_history_height}")
+
     async def _redis_cleanup(self, redis_conn: Redis[str], keys: list[str], height: int, rollback: bool):
+        if not rollback:
+            await self.rotate_redis_history(redis_conn, keys, height)
         if height != 0:
             now = time.monotonic()
             history = False
