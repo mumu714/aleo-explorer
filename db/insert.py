@@ -1395,7 +1395,7 @@ class DatabaseInsert(DatabaseBase):
                     # This part is to prevent errors when the task is terminated, which may cause data to be unable to continue syncing. 
                     # However, this part takes about 1.5 seconds.
                     # Can be commented out in special cases(pause the snarkos node first).
-                    await self._backup_redis_hash_key(self.redis, self.redis_keys, height)
+                    # await self._backup_redis_hash_key(self.redis, self.redis_keys, height)
                     signal.pthread_sigmask(signal.SIG_UNBLOCK, {signal.SIGINT})
                     print(f"execution 0  {time.perf_counter_ns() - timer} ns")
                     timer = time.perf_counter_ns()

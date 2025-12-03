@@ -90,18 +90,30 @@ class BlockRequest(Message):
 class BlockResponse(Message):
     type = Message.Type.BlockResponse
 
-    def __init__(self, *, request: BlockRequest, blocks: Data[Vec[Block, u8]]):
+    def __init__(self, *, request: BlockRequest, blocks: Data[Vec[Block, u8]], latest_consensus_version: u16):
         self.request = request
         self.blocks = blocks
+        self.latest_consensus_version = latest_consensus_version
 
     def dump(self) -> bytes:
         return self.type.dump() + self.request.dump() + self.blocks.dump()
 
     @classmethod
     def load(cls, data: BytesIO):
-        request = BlockRequest.load(data)
-        blocks = Data[Vec[Block, u8]].load(data)
-        return cls(request=request, blocks=blocks)
+        first_u32 = u32.load(data)
+        if first_u32 == 0:
+            # ---- 新格式（即 snarkOS v4.4.0） ----
+            request = BlockRequest.load(data)
+            blocks = Data[Vec[Block, u8]].load(data)
+            latest_consensus_version = u16.load(data)
+            return cls(request=request, blocks=blocks, latest_consensus_version=latest_consensus_version)
+        else:
+            start_height = first_u32
+            end_height = u32.load(data)
+            request = BlockRequest(start_height, end_height)
+            blocks = Data[Vec[Block, u8]].load(data)
+            latest_consensus_version = u16.load(data)
+            return cls(request=request, blocks=blocks, latest_consensus_version=None)
 
 
 class ChallengeRequest(Message):
