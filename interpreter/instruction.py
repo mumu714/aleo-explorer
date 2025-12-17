@@ -1,7 +1,9 @@
+from aleo_explorer_rust import RustExecuteError
 from aleo_types import *
 from db import Database
 from interpreter.environment import Registers
 from interpreter.utils import load_plaintext_from_operand, store_plaintext_to_register, FinalizeState
+from node import Network
 
 IT = Instruction.Type
 HT = HashInstruction.Type
@@ -280,10 +282,17 @@ async def ecdsa_verify_ops(operands: tuple[Operand, Operand, Operand], destinati
     op1 = await load_plaintext_from_operand(operands[0], registers, finalize_state, db, program)
     op2 = await load_plaintext_from_operand(operands[1], registers, finalize_state, db, program)
     op3 = await load_plaintext_from_operand(operands[2], registers, finalize_state, db, program)
+    try:
+        hash_result = aleo_explorer_rust.ecdsa_verify_ops(variant, PlaintextValue(plaintext=op1).dump(), PlaintextValue(plaintext=op2).dump(), PlaintextValue(plaintext=op3).dump())
+    except ValueError as e:
+        if finalize_state.block_height < Network.consensus_v13_height:
+            raise RustExecuteError(e)
+        else:
+            raise
     res = LiteralPlaintext(
         literal=Literal(
             type_=Literal.Type.Boolean,
-            primitive=bool_(aleo_explorer_rust.ecdsa_verify_ops(variant, PlaintextValue(plaintext=op1).dump(), PlaintextValue(plaintext=op2).dump(), PlaintextValue(plaintext=op3).dump())),
+            primitive=bool_(hash_result),
         )
     )
     store_plaintext_to_register(res, destination, registers)
@@ -332,8 +341,6 @@ async def greater_than_or_equal(operands: list[Operand], destination: Register, 
 
 async def hash_op(operands: tuple[Operand, Optional[Operand]], destination: Register, destination_type: PlaintextType, registers: Registers, finalize_state: FinalizeState, hash_type: HT, db: Database, program: Program):
     op = await load_plaintext_from_operand(operands[0], registers, finalize_state, db, program)
-    if not isinstance(destination_type, LiteralPlaintextType):
-        raise TypeError("destination type must be literal")
     res = Plaintext.load(BytesIO(aleo_explorer_rust.hash_ops(PlaintextValue(plaintext=op).dump(), hash_ops[hash_type], destination_type.dump())))
     store_plaintext_to_register(res, destination, registers)
 
@@ -626,7 +633,9 @@ async def rem_wrapped(operands: list[Operand], destination: Register, registers:
 async def serialize_op(operand: Operand, destination: Register, destination_type: ArrayType, registers: Registers, finalize_state: FinalizeState, variant: int, db: Database, program: Program):
     op = await load_plaintext_from_operand(operand, registers, finalize_state, db, program)
 
-    res = PlaintextValue.load(BytesIO(aleo_explorer_rust.serialize_ops(variant, PlaintextValue(plaintext=op).dump(), destination_type.dump())))
+    res = Value.load(BytesIO(aleo_explorer_rust.serialize_ops(variant, PlaintextValue(plaintext=op).dump(), destination_type.dump())))
+    if not isinstance(res, PlaintextValue):
+        raise TypeError("result should be plaintext value")
 
     store_plaintext_to_register(res.plaintext, destination, registers)
 
