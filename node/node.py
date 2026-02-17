@@ -5,7 +5,6 @@ import time
 import traceback
 from asyncio import StreamReader, StreamWriter
 from typing import Awaitable
-from datetime import datetime
 
 import explorer.types as explorer
 from aleo_types import *  # too many types
@@ -20,7 +19,7 @@ PING_SLEEP_IN_SECS = 3
 
 
 class Node:
-    def __init__(self, explorer_message: Callable[[explorer.Message], Awaitable[None]], explorer_request: Callable[[explorer.ExplorerRequest], Awaitable[Any]]):
+    def __init__(self, node_sync: bool, explorer_message: Callable[[explorer.Message], Awaitable[None]], explorer_request: Callable[[explorer.ExplorerRequest], Awaitable[Any]]):
         self.reader: Optional[StreamReader] = None
         self.writer: Optional[StreamWriter] = None
         self.worker_task: asyncio.Task[None]
@@ -29,6 +28,8 @@ class Node:
 
         self.node_ip: str
         self.node_port: int
+
+        self.node_sync = node_sync
 
         # states
         self.handshake_state = 0
@@ -63,9 +64,10 @@ class Node:
             challenge_request = ChallengeRequest(
                 version=Network.version,
                 listener_port=u16(14133),
-                node_type=NodeType.Client,
-                address=Address.loads("aleo1rhgdu77hgyqd3xjj8ucu3jj9r2krwz6mnzyd80gncr5fxcwlh5rsvzp9px"),
+                node_type=NodeType.Prover,
+                address=Address.loads("aleo12ux3gdauck0v60westgcpqj7v8rrcr3v346e4jtq04q7kkt22czsh808v2"),
                 nonce=self.nonce,
+                snarkos_sha=Vec[u8, FixedSize[40]](list(map(u8, b"\x00" * 40))),
             )
             await self.send_message(challenge_request)
             while True:
@@ -111,7 +113,8 @@ class Node:
                 self.is_syncing = False
                 self.block_requests_deadline = float('inf')
                 self.is_fork = False
-            await self._sync()
+            if self.node_sync:
+                await self._sync()
 
         elif isinstance(frame.message, ChallengeRequest):
             if self.handshake_state != 2:
@@ -125,7 +128,7 @@ class Node:
             response = ChallengeResponse(
                 genesis_header=genesis,
                 restrictions_id=Network.restrictions_id,
-                signature=Data[Signature](Signature.load(BytesIO(aleo_explorer_rust.sign_nonce("APrivateKey1zkp8CZNn3yeCseEtxuVPbDCwSyhGW6yZKUYKfgXmcpoGPWH", msg.nonce.dump() + resp_nonce.dump())))),
+                signature=Data[Signature](Signature.load(BytesIO(aleo_explorer_rust.sign_nonce("APrivateKey1zkpBjpEgLo4arVUkQmcLdKQMiAKGaHAQVVwmF8HQby8vdYs", msg.nonce.dump() + resp_nonce.dump())))),
                 nonce=resp_nonce,
             )
             self.handshake_state = 1
@@ -202,7 +205,7 @@ class Node:
                 is_fork=Option[bool_](is_fork),
             )
             await self.send_message(pong)
-            if not self.is_syncing:
+            if not self.is_syncing and self.node_sync:
                 await self._sync()
 
         elif isinstance(frame.message, Pong):
@@ -230,6 +233,8 @@ class Node:
             print("unhandled message type:", frame.message.type)
 
     async def _sync(self):
+        if not self.node_sync:
+            return
         batch_size = int(os.environ.get("P2P_BLOCK_BATCH_SIZE", 1))
         if self.block_requests_deadline < time.time():
             self.block_requests.clear()
@@ -252,7 +257,7 @@ class Node:
 
             start_block_height = latest_height + 1
             end_block_height = min(self.peer_block_height + 1, start_block_height + batch_size)
-            print(f"[{datetime.now().strftime('%Y-%m-%d %H:%M:%S')}] Synchronizing from block {start_block_height} to {end_block_height}")
+            print(f"Synchronizing from block {start_block_height} to {end_block_height}")
             self.is_syncing = True
 
             self.block_requests.extend(range(start_block_height, end_block_height))
@@ -263,7 +268,7 @@ class Node:
     async def send_ping(self):
         ping = Ping(
             version=Network.version,
-            node_type=NodeType.Client,
+            node_type=NodeType.Validator,
             block_locators=Option[BlockLocators](
                 BlockLocators(
                     recents=dict[u32, BlockHash]({
@@ -303,5 +308,5 @@ class Node:
         self.is_syncing = False
         if self.ping_task is not None:
             self.ping_task.cancel()
-        await asyncio.sleep(5)
+        await asyncio.sleep(11)
         self.worker_task = asyncio.create_task(self.worker(self.node_ip, self.node_port))

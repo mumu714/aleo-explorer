@@ -97,7 +97,7 @@ class Explorer:
                 raise ValueError("no block in database")
             self.latest_block_hash = latest_block_hash
             print(f"latest height: {self.latest_height}")
-            self.node = Node(explorer_message=self.message, explorer_request=self.node_request)
+            self.node = Node(True, explorer_message=self.message, explorer_request=self.node_request)
             await self.node.connect(os.environ.get("P2P_NODE_HOST", "127.0.0.1"), int(os.environ.get("P2P_NODE_PORT", "4133")))
             # _ = asyncio.create_task(webapi.run())
             # _ = asyncio.create_task(webui.run())

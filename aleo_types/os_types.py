@@ -90,7 +90,7 @@ class BlockRequest(Message):
 class BlockResponse(Message):
     type = Message.Type.BlockResponse
 
-    def __init__(self, *, request: BlockRequest, blocks: Data[Vec[Block, u8]], latest_consensus_version: u16):
+    def __init__(self, *, request: BlockRequest, blocks: Data[Vec[Block, u8]], latest_consensus_version: Option[u16]):
         self.request = request
         self.blocks = blocks
         self.latest_consensus_version = latest_consensus_version
@@ -100,31 +100,31 @@ class BlockResponse(Message):
 
     @classmethod
     def load(cls, data: BytesIO):
-        first_u32 = u32.load(data)
-        if first_u32 == 0:
-            # ---- 新格式（即 snarkOS v4.4.0） ----
+        start_height = u32.load(data)
+        contains_consensus_version = start_height == 0
+        if contains_consensus_version:
             request = BlockRequest.load(data)
-            blocks = Data[Vec[Block, u8]].load(data)
-            latest_consensus_version = u16.load(data)
-            return cls(request=request, blocks=blocks, latest_consensus_version=latest_consensus_version)
         else:
-            start_height = first_u32
-            end_height = u32.load(data)
-            request = BlockRequest(start_height, end_height)
-            blocks = Data[Vec[Block, u8]].load(data)
+            request = BlockRequest(start_height=start_height, end_height=u32.load(data))
+        blocks = Data[Vec[Block, u8]].load(data)
+        if contains_consensus_version:
             latest_consensus_version = u16.load(data)
-            return cls(request=request, blocks=blocks, latest_consensus_version=None)
+        else:
+            latest_consensus_version = None
+        return cls(request=request, blocks=blocks, latest_consensus_version=Option[u16](latest_consensus_version))
 
 
 class ChallengeRequest(Message):
     type = Message.Type.ChallengeRequest
 
-    def __init__(self, *, version: u32, listener_port: u16, node_type: NodeType, address: Address, nonce: u64):
+    def __init__(self, *, version: u32, listener_port: u16, node_type: NodeType, address: Address, nonce: u64,
+                 snarkos_sha: Vec[u8, FixedSize[40]]):
         self.version = version
         self.listener_port = listener_port
         self.node_type = node_type
         self.address = address
         self.nonce = nonce
+        self.snarkos_sha = snarkos_sha
 
 
     def dump(self) -> bytes:
@@ -135,6 +135,7 @@ class ChallengeRequest(Message):
             self.node_type.dump(),
             self.address.dump(),
             self.nonce.dump(),
+            self.snarkos_sha.dump(),
         ])
 
     @classmethod
@@ -144,7 +145,9 @@ class ChallengeRequest(Message):
         node_type = NodeType.load(data)
         address = Address.load(data)
         nonce = u64.load(data)
-        return cls(version=version, listener_port=listener_port, node_type=node_type, address=address, nonce=nonce)
+        snarkos_sha = Vec[u8, FixedSize[40]].load(data)
+        return cls(version=version, listener_port=listener_port, node_type=node_type, address=address, nonce=nonce,
+                   snarkos_sha=snarkos_sha)
 
     def __str__(self):
         return "ChallengeRequest(version={}, listener_port={}, node_type={}, address={}, nonce={})".format(
@@ -232,7 +235,7 @@ class PeerRequest(Message):
 class PeerResponse(Message):
     type = Message.Type.PeerResponse
 
-    def __init__(self, *, peers: Vec[SocketAddr, u8]):
+    def __init__(self, *, peers: list[tuple[SocketAddr, Option[u32]]]):
         self.peers = peers
 
     def dump(self) -> bytes:
@@ -240,7 +243,21 @@ class PeerResponse(Message):
 
     @classmethod
     def load(cls, data: BytesIO):
-        peers = Vec[SocketAddr, u8].load(data)
+        version = u8.load(data)
+        if version == 0:
+            contains_heights = True
+            count = u8.load(data)
+        else:
+            contains_heights = False
+            count = version
+        peers: list[tuple[SocketAddr, Option[u32]]] = []
+        for _ in range(count):
+            addr = SocketAddr.load(data)
+            if contains_heights:
+                height = Option[u32].load(data)
+            else:
+                height = Option[u32](None)
+            peers.append((addr, height))
         return cls(peers=peers)
 
 class BlockLocators(Serializable):

@@ -967,13 +967,22 @@ class Program(Serializable, JSONSerialize):
         )
         return md5(feature_string.encode()).digest()
 
-    CallGraphNode = TypedDict("CallGraphNode", {"index": int, "name": str, "calls": list["CallGraphNode"]})
+    class CallGraphNode(TypedDict):
+        index: int
+        name: str
+        calls: list[Program.CallGraphNode]
 
-    async def call_graph(self, function_name: Identifier, db: Database) -> list[CallGraphNode]:
+    # noinspection PyTypeHints
+    # pycharm is stupid, prefer pyright type hint checks
+    async def call_graph(self, function_name: Identifier, db: Database) -> list[Program.CallGraphNode] | None:
         from util.global_cache import get_program
-        if function_name not in self.functions:
+        if function_name in self.functions:
+            function = self.functions[function_name]
+        elif function_name in self.closures:
+            # closures doesn't create transitions
+            return None
+        else:
             raise ValueError("Function not found")
-        function = self.functions[function_name]
         calls: list[Program.CallGraphNode] = []
         for inst in function.instructions:
             if isinstance(inst.literals, CallInstruction) and isinstance(inst.literals.operator, LocatorCallOperator):
@@ -985,10 +994,13 @@ class Program(Serializable, JSONSerialize):
                 program = await get_program(db, str(program_id), edition)
                 if program is None:
                     raise ValueError(f"Program {program_id} not found")
+                sub_calls = await program.call_graph(locator.resource, db)
+                if sub_calls is None:
+                    continue
                 calls.append({
                     "index": 0,
                     "name": str(locator),
-                    "calls": await program.call_graph(locator.resource, db)
+                    "calls": sub_calls
                 })
 
         def fill_transition_order(current_index: int, _calls: list[Program.CallGraphNode]) -> int:

@@ -1,4 +1,5 @@
 import asyncio
+import os
 import random
 import time
 from io import BytesIO
@@ -9,7 +10,8 @@ import aleo_explorer_rust
 import requests
 
 from aleo_types import ChallengeRequest, NodeType, u16, u64, Frame, Message, ChallengeResponse, \
-    PeerRequest, Ping, PeerResponse, Pong, bool_, BlockLocators, Address, Signature, Option, Data
+    PeerRequest, Ping, PeerResponse, Pong, bool_, BlockLocators, Address, Signature, Option, Data, Vec, FixedSize, u8, \
+    Disconnect
 from . import Network
 
 
@@ -52,6 +54,7 @@ class LightNodeState:
                     self.nodes[key].connect(ip, port)
                     self.last_connect_attempt[key] = time.time()
                     self.states[key]["last_ping"] = time.time()
+                    self.states[key]["height"] = None
 
     def incoming(self, ip: str, port: int, node: "LightNode"):
         key = ":".join([ip, str(port)])
@@ -85,6 +88,11 @@ class LightNodeState:
         key = ":".join([ip, str(port)])
         if key in self.states:
             self.states[key]["peer_count"] = peer_count
+
+    def node_height(self, ip: str, port: int, height: int):
+        key = ":".join([ip, str(port)])
+        if key in self.states:
+            self.states[key]["height"] = height
 
     def disconnected(self, ip: str, port: int):
         key = ":".join([ip, str(port)])
@@ -120,6 +128,7 @@ class LightNode:
         self.last_rest_query = 0
 
         self.nonce = u64(random.randint(0, 2 ** 64 - 1))
+        self.log_enabled = bool(os.getenv("LIGHT_NODE_LOG", ""))
 
     def incoming(self, reader: asyncio.StreamReader, writer: asyncio.StreamWriter):
         self.ip = writer.get_extra_info("peername")[0]
@@ -132,9 +141,11 @@ class LightNode:
         self.worker_task = asyncio.create_task(self.__worker(self.ip, self.port))
 
     async def __worker(self, host: str, port: int):
+        self.log(f"connecting to {host}:{port}")
         try:
             self.reader, self.writer = await asyncio.wait_for(asyncio.open_connection(host, port), timeout=5)
-        except Exception:
+        except Exception as e:
+            self.log(f"connection to {host}:{port} failed: {e}")
             await self.close()
             return
         try:
@@ -142,27 +153,33 @@ class LightNode:
                 version=Network.version,
                 listener_port=u16(14134),
                 node_type=NodeType.Prover,
-                address=Address.loads("aleo1rhgdu77hgyqd3xjj8ucu3jj9r2krwz6mnzyd80gncr5fxcwlh5rsvzp9px"),
+                address=Address.loads("aleo1s3ws5tra87fjycnjrwsjcrnw2qxr8jfqqdugnf0xzqqw29q9m5pqem2u4t"),
                 nonce=self.nonce,
+                snarkos_sha=Vec[u8, FixedSize[40]](list(map(u8, b"\x00" * 40))),
             )
             await self.send_message(challenge_request)
             self.aiohttp_session = aiohttp.ClientSession(f"http://{self.ip}:3030", timeout=aiohttp.ClientTimeout(total=1))
             while True:
                 try:
                     size = await self.reader.readexactly(4)
-                except:
+                except Exception as e:
+                    self.log(f"connection to {host}:{port} closed: {e}")
                     raise Exception("connection closed")
                 size = int.from_bytes(size, byteorder="little")
                 try:
                     frame = await self.reader.readexactly(size)
-                except:
+                except Exception as e:
+                    self.log(f"connection to {host}:{port} closed: {e}")
                     raise Exception("connection closed")
                 await self.parse_message(Frame.load(BytesIO(frame)))
-        except Exception:
+        except Exception as e:
+            self.log(f"connection to {host}:{port} closed: {e}")
             await self.close()
             return
 
     async def __incoming_worker(self, reader: asyncio.StreamReader, writer: asyncio.StreamWriter):
+        host, port = writer.get_extra_info('peername')
+        self.log(f"connection from {host}:{port}")
         self.reader = reader
         self.writer = writer
         try:
@@ -170,15 +187,18 @@ class LightNode:
             while True:
                 try:
                     size = await self.reader.readexactly(4)
-                except:
+                except Exception as e:
+                    self.log(f"connection from {host}:{port} closed: {e}")
                     raise Exception("connection closed")
                 size = int.from_bytes(size, byteorder="little")
                 try:
                     frame = await self.reader.readexactly(size)
-                except:
+                except Exception as e:
+                    self.log(f"connection from {host}:{port} closed: {e}")
                     raise Exception("connection closed")
                 await self.parse_message(Frame.load(BytesIO(frame)))
-        except Exception:
+        except Exception as e:
+            self.log(f"connection from {host}:{port} closed: {e}")
             await self.close()
             return
 
@@ -190,9 +210,8 @@ class LightNode:
     async def parse_message(self, frame: Frame):
 
         if isinstance(frame.message, ChallengeRequest):
+            self.log(f"received challenge request from {self.ip}:{self.port}")
             msg = frame.message
-            if msg.version < Network.version:
-                raise ValueError("peer is outdated")
             if self.is_incoming:
                 self.port = int(msg.listener_port)
                 self.state.incoming(self.ip, self.port, self)
@@ -201,28 +220,34 @@ class LightNode:
             response = ChallengeResponse(
                 genesis_header=Network.genesis_block.header,
                 restrictions_id=Network.restrictions_id,
-                signature=Data[Signature](Signature.load(BytesIO(aleo_explorer_rust.sign_nonce("APrivateKey1zkp8CZNn3yeCseEtxuVPbDCwSyhGW6yZKUYKfgXmcpoGPWH", msg.nonce.dump() + resp_nonce.dump())))),
+                signature=Data[Signature](Signature.load(BytesIO(aleo_explorer_rust.sign_nonce("APrivateKey1zkp2RWGDcde3efb89rjhME1VYA8QMxcxep5DShNBR6n8Yjh", msg.nonce.dump() + resp_nonce.dump())))),
                 nonce=resp_nonce,
             )
             await self.send_message(response)
+            self.log(f"sent challenge response to {self.ip}:{self.port}")
 
             if not self.is_incoming:
                 await self.send_ping()
                 self.ping_task = asyncio.create_task(self.ping_task_func())
+                self.log(f"connection to {self.ip}:{self.port} established")
             else:
                 challenge_request = ChallengeRequest(
                     version=Network.version,
                     listener_port=u16(14134),
                     node_type=NodeType.Prover,
-                    address=Address.loads("aleo1rhgdu77hgyqd3xjj8ucu3jj9r2krwz6mnzyd80gncr5fxcwlh5rsvzp9px"),
+                    address=Address.loads("aleo1s3ws5tra87fjycnjrwsjcrnw2qxr8jfqqdugnf0xzqqw29q9m5pqem2u4t"),
                     nonce=self.nonce,
+                    snarkos_sha=Vec[u8, FixedSize[40]](list(map(u8, b"\x00" * 40))),
                 )
                 await self.send_message(challenge_request)
+                self.log(f"sent challenge request to {self.ip}:{self.port}")
 
         elif isinstance(frame.message, ChallengeResponse):
+            self.log(f"received challenge response from {self.ip}:{self.port}")
             if self.is_incoming:
                 await self.send_ping()
                 self.ping_task = asyncio.create_task(self.ping_task_func())
+                self.log(f"connection from {self.ip}:{self.port} established")
 
         elif isinstance(frame.message, Ping):
             msg = frame.message
@@ -259,19 +284,26 @@ class LightNode:
             if time.time() - self.last_rest_query > 300:
                 self.last_rest_query = time.time()
                 try:
-                    r = await cast(aiohttp.ClientSession, self.aiohttp_session).get("/testnet/peers/all/metrics")
+                    r = await cast(aiohttp.ClientSession, self.aiohttp_session).get(f"/{os.environ.get('NETWORK', 'unknown')}/peers/all/metrics")
                     if r.ok:
                         data = await r.json()
                         for p in data:
                             peer_types[p[0]] = NodeType[p[1]]
                 except Exception:
                     pass
+            self.log(f"Peers from {self.ip}:{self.port}: {msg.peers}")
             for peer in msg.peers:
                 if str(peer) in peer_types:
                     peer_type = peer_types[str(peer)]
                 else:
                     peer_type = None
-                self.state.connect(str(peer.ip), peer.port, peer_type)
+                self.state.connect(str(peer[0].ip), peer[0].port, peer_type)
+                if peer[1].value is not None:
+                    self.state.node_height(str(peer[0].ip), peer[0].port, peer[1].value)
+
+        elif isinstance(frame.message, Disconnect):
+            msg = frame.message
+            self.log(f"Disconnected from {self.ip}:{self.port}: {msg.reason.name}")
 
         else:
             pass
@@ -316,6 +348,10 @@ class LightNode:
             self.writer.close()
         asyncio.create_task(self.close_session())
 
+    def log(self, message: str):
+        if self.log_enabled:
+            print(f"LightNode: {message}")
+
 
 class LightNodeListener:
     def __init__(self, state: LightNodeState):
@@ -329,7 +365,6 @@ class LightNodeListener:
     async def incoming(self, reader: asyncio.StreamReader, writer: asyncio.StreamWriter):
         node = LightNode(self.state, is_incoming=True)
         node.incoming(reader, writer)
-
 
 
 
