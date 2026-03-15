@@ -4,6 +4,7 @@ from db import Database
 from interpreter.environment import Registers
 from interpreter.utils import load_plaintext_from_operand, store_plaintext_to_register, FinalizeState
 from node import Network
+from util.global_cache import get_program
 
 IT = Instruction.Type
 HT = HashInstruction.Type
@@ -198,6 +199,24 @@ async def cast_op(operands: list[Operand], destination: Register, cast_type: Cas
         struct_plaintext = StructPlaintext(members=Vec[Tuple[Identifier, Plaintext], u8](members))
         verify_struct_type(struct_plaintext, struct_definition)
         store_plaintext_to_register(struct_plaintext, destination, registers)
+    elif isinstance(plaintext_type, ExternalStructPlaintextType):
+        external_program_id = str(plaintext_type.locator.id)
+        latest_edition = await db.get_program_latest_edition(external_program_id)
+        if latest_edition is None:
+            raise RuntimeError("external program not found")
+        external_program = await get_program(db, external_program_id, latest_edition)
+        if not external_program:
+            raise RuntimeError("external program not found")
+        struct_identifier = plaintext_type.locator.resource
+        struct_definition = external_program.structs[struct_identifier]
+        if len(struct_definition.members) != len(operands):
+            raise RuntimeError("invalid number of operands")
+        members: list[Tuple[Identifier, Plaintext]] = []
+        for i, (name, _) in enumerate(struct_definition.members):
+            name: Identifier
+            members.append(Tuple[Identifier, Plaintext]((name, await load_plaintext_from_operand(operands[i], registers, finalize_state, db, program))))
+        struct_plaintext = StructPlaintext(members=Vec[Tuple[Identifier, Plaintext], u8](members))
+        store_plaintext_to_register(struct_plaintext, destination, registers)
     elif isinstance(plaintext_type, ArrayPlaintextType):
         array: list[Plaintext] = []
         for operand in operands:
@@ -227,7 +246,18 @@ async def commit_op(operands: tuple[Operand, Operand], destination: Register, de
 async def deserialize_op(operand: Operand, destination: Register, destination_type: PlaintextType, registers: Registers, finalize_state: FinalizeState, variant: int, db: Database, program: Program):
     op = await load_plaintext_from_operand(operand, registers, finalize_state, db, program)
 
-    res = Plaintext.load(BytesIO(aleo_explorer_rust.deserialize_ops(variant, PlaintextValue(plaintext=op).dump(), destination_type.dump(), program.dump())))
+    imported_programs = []
+    for imp in program.imports:
+        program_id = str(imp.program_id)
+        edition = await db.get_program_latest_edition(program_id)
+        if edition is None:
+            raise RuntimeError(f"imported program '{program_id}' not found")
+        imp_program = await get_program(db, program_id, edition)
+        if imp_program is None:
+            raise RuntimeError(f"imported program '{program_id}' not found")
+        imported_programs.append(imp_program.dump())
+
+    res = Plaintext.load(BytesIO(aleo_explorer_rust.deserialize_ops(variant, PlaintextValue(plaintext=op).dump(), destination_type.dump(), program.dump(), imported_programs)))
 
     store_plaintext_to_register(res, destination, registers)
 
