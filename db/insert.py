@@ -417,11 +417,10 @@ class DatabaseInsert(DatabaseBase):
                                          deployment: Deployment, owner: ProgramOwner, fee: Fee, transaction_db_id: int,
                                          is_unconfirmed: bool = False, is_rejected: bool = False, fee_should_exist: bool = False):
         async with conn.cursor() as cur:
+            program_id = str(deployment.program.id)
             if is_unconfirmed or is_rejected:
-                program_id = str(deployment.program.id)
                 owner_db = str(owner.address)
             else:
-                program_id = None
                 owner_db = None
             await cur.execute(
                 "SELECT id FROM transaction_deploy WHERE transaction_id = %s", (transaction_db_id,)
@@ -686,13 +685,14 @@ class DatabaseInsert(DatabaseBase):
                         raise RuntimeError("database inconsistent")
                     deploy_transaction_db_id = res["id"]
                     deployment = transaction.deployment
-                    if isinstance(deployment, DeploymentV1):
-                        checksum = None
+                    if isinstance(deployment, DeploymentV3):
+                        pass  # V3 amendment: program row already exists, new VKs stored in transaction_deploy
+                    elif isinstance(deployment, DeploymentV1):
+                        await DatabaseInsert._save_program(cur, deployment.program, deploy_transaction_db_id, transaction, None, None)
                     elif isinstance(deployment, DeploymentV2):
-                        checksum = bytes(deployment.program_checksum)
+                        await DatabaseInsert._save_program(cur, deployment.program, deploy_transaction_db_id, transaction, None, bytes(deployment.program_checksum))
                     else:
                         raise NotImplementedError
-                    await DatabaseInsert._save_program(cur, transaction.deployment.program, deploy_transaction_db_id, transaction, None, checksum)
 
                 elif isinstance(confirmed_transaction, AcceptedExecute):
                     await cur.execute(

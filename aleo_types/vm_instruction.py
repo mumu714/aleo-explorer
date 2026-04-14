@@ -33,6 +33,47 @@ class StringType(Serializable):
     def __str__(self):
         return self.string
 
+class Identifier(Serializable, JSONSerialize):
+
+    def __init__(self, *, value: str):
+        self.data = value
+
+    def dump(self) -> bytes:
+        return len(self.data).to_bytes(1, "little") + self.data.encode("ascii")
+
+    @classmethod
+    def load(cls, data: BytesIO):
+        length = data.read(1)[0]
+        value = data.read(length).decode("ascii") # let the exception propagate
+        return cls(value=value)
+
+    @classmethod
+    def loads(cls, data: str):
+        return cls(value=data)
+
+    def json(self, compatible: bool = False) -> JSONType:
+        return self.data
+
+    def __str__(self):
+        return self.data
+
+    def __repr__(self):
+        return self.data
+
+    def __eq__(self, other: object):
+        if isinstance(other, str):
+            return self.data == other
+        if isinstance(other, Identifier):
+            return self.data == other.data
+        return False
+
+    def __hash__(self):
+        return hash(self.data)
+
+    def __len__(self):
+        return len(self.data)
+
+
 class Literal(Serializable, JSONSerialize): # enum
 
     class Type(IntEnumu16):
@@ -53,6 +94,7 @@ class Literal(Serializable, JSONSerialize): # enum
         Scalar = 14
         Signature = 15
         String = 16
+        Identifier = 17
 
     primitive_type_map = {
         Type.Address: Address,
@@ -72,6 +114,7 @@ class Literal(Serializable, JSONSerialize): # enum
         Type.Scalar: Scalar,
         Type.Signature: Signature,
         Type.String: StringType,
+        Type.Identifier: Identifier,
     }
 
     reverse_primitive_type_map = {
@@ -92,6 +135,7 @@ class Literal(Serializable, JSONSerialize): # enum
         Scalar: Type.Scalar,
         Signature: Type.Signature,
         StringType: Type.String,
+        Identifier: Type.Identifier,
     }
 
     def __init__(self, *, type_: Type, primitive: Serializable):
@@ -132,46 +176,6 @@ class Literal(Serializable, JSONSerialize): # enum
             return False
         return self.type == other.type and self.primitive >= other.primitive
 
-
-class Identifier(Serializable, JSONSerialize):
-
-    def __init__(self, *, value: str):
-        self.data = value
-
-    def dump(self) -> bytes:
-        return len(self.data).to_bytes(1, "little") + self.data.encode("ascii")
-
-    @classmethod
-    def load(cls, data: BytesIO):
-        length = data.read(1)[0]
-        value = data.read(length).decode("ascii") # let the exception propagate
-        return cls(value=value)
-
-    @classmethod
-    def loads(cls, data: str):
-        return cls(value=data)
-
-    def json(self, compatible: bool = False) -> JSONType:
-        return self.data
-
-    def __str__(self):
-        return self.data
-
-    def __repr__(self):
-        return self.data
-
-    def __eq__(self, other: object):
-        if isinstance(other, str):
-            return self.data == other
-        if isinstance(other, Identifier):
-            return self.data == other.data
-        return False
-
-    def __hash__(self):
-        return hash(self.data)
-
-    def __len__(self):
-        return len(self.data)
 
 class ProgramID(Serializable, JSONSerialize):
 
@@ -372,6 +376,8 @@ class Operand(EnumBaseSerialize, Serialize, JSONSerialize, RustEnum):
         Edition = 8
         ProgramOwner = 9
         BlockTimestamp = 10
+        AleoGenerator = 11
+        AleoGeneratorPowers = 12
 
     @classmethod
     def load(cls, data: BytesIO):
@@ -398,6 +404,10 @@ class Operand(EnumBaseSerialize, Serialize, JSONSerialize, RustEnum):
             return ProgramOwnerOperand.load(data)
         elif type_ == cls.Type.BlockTimestamp:
             return BlockTimestampOperand.load(data)
+        elif type_ == cls.Type.AleoGenerator:
+            return AleoGeneratorOperand.load(data)
+        elif type_ == cls.Type.AleoGeneratorPowers:
+            return AleoGeneratorPowersOperand.load(data)
         else:
             raise ValueError("unknown operand type")
 
@@ -549,6 +559,32 @@ class BlockTimestampOperand(Operand):
     @classmethod
     def load(cls, data: BytesIO):
         return cls()
+
+class AleoGeneratorOperand(Operand):
+    type = Operand.Type.AleoGenerator
+
+    def __init__(self):
+        pass
+
+    def dump(self) -> bytes:
+        return self.type.dump()
+
+    @classmethod
+    def load(cls, data: BytesIO):
+        return cls()
+
+class AleoGeneratorPowersOperand(Operand):
+    type = Operand.Type.AleoGeneratorPowers
+
+    def __init__(self, *, index: Option[u32]):
+        self.index = index
+
+    def dump(self) -> bytes:
+        return self.type.dump() + self.index.dump()
+
+    @classmethod
+    def load(cls, data: BytesIO):
+        return cls(index=Option[u32].load(data))
 
 class Literals(Serializable, JSONSerialize, Generic[N]):
     types: N
@@ -722,6 +758,7 @@ class LiteralType(IntEnumu8):
     Scalar = 14
     Signature = 15
     String = 16
+    Identifier = 17
 
     @property
     def primitive_type(self):
@@ -743,6 +780,7 @@ class LiteralType(IntEnumu8):
             self.Scalar: Scalar,
             self.Signature: Signature,
             self.String: StringType,
+            self.Identifier: Identifier,
         }[self]
 
     def __str__(self):
@@ -764,6 +802,7 @@ class LiteralType(IntEnumu8):
             self.Scalar: "scalar",
             self.Signature: "signature",
             self.String: "string",
+            self.Identifier: "identifier",
         }[self]
 
 
@@ -1027,6 +1066,7 @@ class CastType(EnumBaseSerialize, Serialize, JSONSerialize, RustEnum):
         Plaintext = 2
         Record = 3
         ExternalRecord = 4
+        DynamicRecord = 5
 
     @classmethod
     def load(cls, data: BytesIO):
@@ -1041,6 +1081,8 @@ class CastType(EnumBaseSerialize, Serialize, JSONSerialize, RustEnum):
             return RecordCastType.load(data)
         elif type_ == cls.Type.ExternalRecord:
             return ExternalRecordCastType.load(data)
+        elif type_ == cls.Type.DynamicRecord:
+            return DynamicRecordCastType.load(data)
         else:
             raise ValueError(f"Invalid cast type {type_}")
 
@@ -1105,6 +1147,16 @@ class ExternalRecordCastType(CastType):
     def load(cls, data: BytesIO):
         locator = Locator.load(data)
         return cls(locator=locator)
+
+class DynamicRecordCastType(CastType):
+    type = CastType.Type.DynamicRecord
+
+    def dump(self) -> bytes:
+        return self.type.dump()
+
+    @classmethod
+    def load(cls, data: BytesIO):
+        return cls()
 
 
 class CastInstruction(Serializable, JSONSerialize, Generic[V]):
@@ -1193,119 +1245,6 @@ class CommitInstruction(Serializable, Generic[V]):
         destination = Register.load(data)
         destination_type = LiteralType.load(data)
         return cls(operands=(op1, op2), destination=destination, destination_type=destination_type)
-
-class DeserializeInstruction(Serializable, JSONSerialize, Generic[V]):
-    variant: V
-
-    def __init__(self, *, operand: Operand, operand_type: ArrayType, destination: Register, destination_type: PlaintextType):
-        self.operand = operand
-        self.operand_type = operand_type
-        self.destination = destination
-        self.destination_type = destination_type
-
-    @tp_cache
-    def __class_getitem__(cls, item: TType[V]) -> GenericAlias:
-        param_type = type(
-            f"DeserializeInstruction[{item}]",
-            (DeserializeInstruction,),
-            {"variant": item},
-        )
-        return GenericAlias(param_type, item)
-
-    def dump(self) -> bytes:
-        return self.operand.dump() + self.operand_type.dump() + self.destination.dump() + self.destination_type.dump()
-
-    @classmethod
-    def load(cls, data: BytesIO):
-        operand = Operand.load(data)
-        operand_type = ArrayType.load(data)
-        destination = Register.load(data)
-        destination_type = PlaintextType.load(data)
-        return cls(operand=operand, operand_type=operand_type, destination=destination, destination_type=destination_type)
-
-class SerializeInstruction(Serializable, JSONSerialize, Generic[V]):
-    variant: V
-
-    def __init__(self, *, operand: Operand, operand_type: PlaintextType, destination: Register, destination_type: ArrayType):
-        self.operand = operand
-        self.operand_type = operand_type
-        self.destination = destination
-        self.destination_type = destination_type
-
-    @tp_cache
-    def __class_getitem__(cls, item: TType[V]) -> GenericAlias:
-        param_type = type(
-            f"SerializeInstruction[{item}]",
-            (SerializeInstruction,),
-            {"variant": item},
-        )
-        return GenericAlias(param_type, item)
-
-    def dump(self) -> bytes:
-        return self.operand.dump() + self.operand_type.dump() + self.destination.dump() + self.destination_type.dump()
-
-    @classmethod
-    def load(cls, data: BytesIO):
-        operand = Operand.load(data)
-        operand_type = PlaintextType.load(data)
-        destination = Register.load(data)
-        destination_type = ArrayType.load(data)
-        return cls(operand=operand, operand_type=operand_type, destination=destination, destination_type=destination_type)
-
-
-class ECDSAVerifyInstruction(Serializable, JSONSerialize, Generic[V]):
-    variant: V
-
-    class Type(IntEnum):
-
-        @staticmethod
-        def _generate_next_value_(name: str, start: int, count: int, last_values: list[int]):
-            return count
-
-        Digest = auto()
-        DigestEth = auto()
-        HashKeccak256 = auto()
-        HashKeccak256Raw = auto()
-        HashKeccak256Eth = auto()
-        HashKeccak384 = auto()
-        HashKeccak384Raw = auto()
-        HashKeccak384Eth = auto()
-        HashKeccak512 = auto()
-        HashKeccak512Raw = auto()
-        HashKeccak512Eth = auto()
-        HashSha3_256 = auto()
-        HashSha3_256Raw = auto()
-        HashSha3_256Eth = auto()
-        HashSha3_384 = auto()
-        HashSha3_384Raw = auto()
-        HashSha3_384Eth = auto()
-        HashSha3_512 = auto()
-        HashSha3_512Raw = auto()
-        HashSha3_512Eth = auto()
-
-    def __init__(self, *, operands: tuple[Operand, Operand, Operand], destination: Register):
-        self.operands = operands
-        self.destination = destination
-
-    @tp_cache
-    def __class_getitem__(cls, item: TType[V]) -> GenericAlias:
-        param_type = type(
-            f"ECDSAVerifyInstruction[{item}]",
-            (ECDSAVerifyInstruction,),
-            {"variant": item},
-        )
-        return GenericAlias(param_type, item)
-
-    def dump(self) -> bytes:
-        return b"".join(op.dump() for op in self.operands) + self.destination.dump()
-
-    @classmethod
-    def load(cls, data: BytesIO):
-        op1 = Operand.load(data)
-        op2 = Operand.load(data)
-        op3 = Operand.load(data)
-        destination = Register.load(data)
-        return cls(operands=(op1, op2, op3), destination=destination)
 
 
 class HashInstruction(Serializable, JSONSerialize, Generic[V]):
@@ -1425,6 +1364,223 @@ class AsyncInstruction(Serializable, JSONSerialize):
         destination = Register.load(data)
         return cls(function_name=function_name, operands=operands, destination=destination)
 
+class DeserializeInstruction(Serializable, JSONSerialize, Generic[V]):
+    variant: V
+
+    def __init__(self, *, operand: Operand, operand_type: ArrayType, destination: Register, destination_type: PlaintextType):
+        self.operand = operand
+        self.operand_type = operand_type
+        self.destination = destination
+        self.destination_type = destination_type
+
+    @tp_cache
+    def __class_getitem__(cls, item: TType[V]) -> GenericAlias:
+        param_type = type(
+            f"DeserializeInstruction[{item}]",
+            (DeserializeInstruction,),
+            {"variant": item},
+        )
+        return GenericAlias(param_type, item)
+
+    def dump(self) -> bytes:
+        return self.operand.dump() + self.operand_type.dump() + self.destination.dump() + self.destination_type.dump()
+
+    @classmethod
+    def load(cls, data: BytesIO):
+        operand = Operand.load(data)
+        operand_type = ArrayType.load(data)
+        destination = Register.load(data)
+        destination_type = PlaintextType.load(data)
+        return cls(operand=operand, operand_type=operand_type, destination=destination, destination_type=destination_type)
+
+class SerializeInstruction(Serializable, JSONSerialize, Generic[V]):
+    variant: V
+
+    def __init__(self, *, operand: Operand, operand_type: PlaintextType, destination: Register, destination_type: ArrayType):
+        self.operand = operand
+        self.operand_type = operand_type
+        self.destination = destination
+        self.destination_type = destination_type
+
+    @tp_cache
+    def __class_getitem__(cls, item: TType[V]) -> GenericAlias:
+        param_type = type(
+            f"SerializeInstruction[{item}]",
+            (SerializeInstruction,),
+            {"variant": item},
+        )
+        return GenericAlias(param_type, item)
+
+    def dump(self) -> bytes:
+        return self.operand.dump() + self.operand_type.dump() + self.destination.dump() + self.destination_type.dump()
+
+    @classmethod
+    def load(cls, data: BytesIO):
+        operand = Operand.load(data)
+        operand_type = PlaintextType.load(data)
+        destination = Register.load(data)
+        destination_type = ArrayType.load(data)
+        return cls(operand=operand, operand_type=operand_type, destination=destination, destination_type=destination_type)
+
+
+class CallDynamicInstruction(Serializable, JSONSerialize):
+
+    def __init__(self, *, operands: list[Operand], operand_types: list["ValueType"], destinations: list[Register], destination_types: list["ValueType"]):
+        self.operands = operands
+        self.operand_types = operand_types
+        self.destinations = destinations
+        self.destination_types = destination_types
+
+    def dump(self) -> bytes:
+        res = bytearray()
+        res.append(len(self.operands))
+        for op in self.operands:
+            res.extend(op.dump())
+        for ot in self.operand_types:
+            res.extend(ot.dump())
+        res.append(len(self.destinations))
+        for dest in self.destinations:
+            res.extend(dest.dump())
+        for dt in self.destination_types:
+            res.extend(dt.dump())
+        return bytes(res)
+
+    @classmethod
+    def load(cls, data: BytesIO):
+        from .vm_block import ValueType
+        num_operands = u8.load(data)
+        if num_operands < 3:
+            raise ValueError("call.dynamic requires at least 3 operands")
+        operands: list[Operand] = []
+        for _ in range(num_operands):
+            operands.append(Operand.load(data))
+        num_operand_types = num_operands - 3
+        operand_types: list[ValueType] = []
+        for _ in range(num_operand_types):
+            operand_types.append(ValueType.load(data))
+        num_destinations = u8.load(data)
+        destinations: list[Register] = []
+        for _ in range(num_destinations):
+            destinations.append(Register.load(data))
+        destination_types: list[ValueType] = []
+        for _ in range(num_destinations):
+            destination_types.append(ValueType.load(data))
+        return cls(operands=operands, operand_types=operand_types, destinations=destinations, destination_types=destination_types)
+
+
+class RecordEntryVisibility(IntEnumu8):
+    Constant = 0
+    Public = 1
+    Private = 2
+
+
+class GetRecordDynamicInstruction(Serializable, JSONSerialize):
+
+    def __init__(self, *, operand: Operand, destination: Register, entry_identifier: Identifier, plaintext_type: PlaintextType, visibility: Option[RecordEntryVisibility]):
+        self.operand = operand
+        self.destination = destination
+        self.entry_identifier = entry_identifier
+        self.plaintext_type = plaintext_type
+        self.visibility = visibility
+
+    def dump(self) -> bytes:
+        return self.operand.dump() + self.destination.dump() + self.entry_identifier.dump() + self.plaintext_type.dump() + self.visibility.dump()
+
+    @classmethod
+    def load(cls, data: BytesIO):
+        operand = Operand.load(data)
+        destination = Register.load(data)
+        entry_identifier = Identifier.load(data)
+        plaintext_type = PlaintextType.load(data)
+        visibility = Option[RecordEntryVisibility].load(data)
+        return cls(operand=operand, destination=destination, entry_identifier=entry_identifier, plaintext_type=plaintext_type, visibility=visibility)
+
+
+class SnarkVerifyInstruction(Serializable, JSONSerialize, Generic[V]):
+    variant: V
+
+    class Type(IntEnum):
+        SnarkVerify = 0
+        SnarkVerifyBatch = 1
+
+    def __init__(self, *, operands: Vec[Operand, FixedSize[4]], destination: Register):
+        self.operands = operands
+        self.destination = destination
+
+    @tp_cache
+    def __class_getitem__(cls, item: TType[V]) -> GenericAlias:
+        param_type = type(
+            f"SnarkVerifyInstruction[{item}]",
+            (SnarkVerifyInstruction,),
+            {"variant": item},
+        )
+        return GenericAlias(param_type, item)
+
+    def dump(self) -> bytes:
+        return self.operands.dump() + self.destination.dump()
+
+    @classmethod
+    def load(cls, data: BytesIO):
+        operands = Vec[Operand, FixedSize[4]].load(data)
+        destination = Register.load(data)
+        return cls(operands=operands, destination=destination)
+
+
+class ECDSAVerifyInstruction(Serializable, JSONSerialize, Generic[V]):
+    variant: V
+
+    class Type(IntEnum):
+
+        @staticmethod
+        def _generate_next_value_(name: str, start: int, count: int, last_values: list[int]):
+            return count
+        
+        Digest = auto()
+        DigestEth = auto()
+        HashKeccak256 = auto()
+        HashKeccak256Raw = auto()
+        HashKeccak256Eth = auto()
+        HashKeccak384 = auto()
+        HashKeccak384Raw = auto()
+        HashKeccak384Eth = auto()
+        HashKeccak512 = auto()
+        HashKeccak512Raw = auto()
+        HashKeccak512Eth = auto()
+        HashSha3_256 = auto()
+        HashSha3_256Raw = auto()
+        HashSha3_256Eth = auto()
+        HashSha3_384 = auto()
+        HashSha3_384Raw = auto()
+        HashSha3_384Eth = auto()
+        HashSha3_512 = auto()
+        HashSha3_512Raw = auto()
+        HashSha3_512Eth = auto()
+
+    def __init__(self, *, operands: tuple[Operand, Operand, Operand], destination: Register):
+        self.operands = operands
+        self.destination = destination
+
+    @tp_cache
+    def __class_getitem__(cls, item: TType[V]) -> GenericAlias:
+        param_type = type(
+            f"ECDSAVerifyInstruction[{item}]",
+            (ECDSAVerifyInstruction,),
+            {"variant": item},
+        )
+        return GenericAlias(param_type, item)
+
+    def dump(self) -> bytes:
+        return b"".join(op.dump() for op in self.operands) + self.destination.dump()
+
+    @classmethod
+    def load(cls, data: BytesIO):
+        op1 = Operand.load(data)
+        op2 = Operand.load(data)
+        op3 = Operand.load(data)
+        destination = Register.load(data)
+        return cls(operands=(op1, op2, op3), destination=destination)
+
+# noinspection PyTypeHints
 class Instruction(Serializable, JSONSerialize):
 
     class Type(IntEnumu16):
@@ -1555,6 +1711,11 @@ class Instruction(Serializable, JSONSerialize):
         SerializeBits = auto()
         SerializeBitsRaw = auto()
 
+        # New opcodes added in `ConsensusVersion::V14`
+        CallDynamic = auto()
+        GetRecordDynamic = auto()
+        SnarkVerify = auto()
+        SnarkVerifyBatch = auto()
 
     type: Type
 
@@ -1680,6 +1841,10 @@ class Instruction(Serializable, JSONSerialize):
         Type.HashSha3_512NativeRaw: HashInstruction[Variant[HashInstruction.Type.HashSha3_512NativeRaw]],
         Type.SerializeBits: SerializeInstruction[Variant[0]],
         Type.SerializeBitsRaw: SerializeInstruction[Variant[1]],
+        Type.CallDynamic: CallDynamicInstruction,
+        Type.GetRecordDynamic: GetRecordDynamicInstruction,
+        Type.SnarkVerify: SnarkVerifyInstruction[Variant[SnarkVerifyInstruction.Type.SnarkVerify]],
+        Type.SnarkVerifyBatch: SnarkVerifyInstruction[Variant[SnarkVerifyInstruction.Type.SnarkVerifyBatch]],
     }
 
     # used by feature hash
@@ -1803,6 +1968,10 @@ class Instruction(Serializable, JSONSerialize):
         Type.HashSha3_512NativeRaw: "H",
         Type.SerializeBits: "S",
         Type.SerializeBitsRaw: "S",
+        Type.CallDynamic: "C",
+        Type.GetRecordDynamic: "G",
+        Type.SnarkVerify: "V",
+        Type.SnarkVerifyBatch: "V",
     }
 
     fee_map = {
@@ -1876,7 +2045,7 @@ class Instruction(Serializable, JSONSerialize):
         Type.Xor: 500,
     }
 
-    def __init__(self, *, type_: Type, literals: Literals[N] | AssertInstruction[Any] | CallInstruction | CastInstruction[Any] | CommitInstruction[Any] | HashInstruction[Any] | AsyncInstruction | DeserializeInstruction[V] | SerializeInstruction[V] | ECDSAVerifyInstruction[V]):
+    def __init__(self, *, type_: Type, literals: Literals[N] | AssertInstruction[Any] | CallInstruction | CallDynamicInstruction | CastInstruction[Any] | CommitInstruction[Any] | HashInstruction[Any] | AsyncInstruction | DeserializeInstruction[V] | SerializeInstruction[V] | ECDSAVerifyInstruction[V] | GetRecordDynamicInstruction | SnarkVerifyInstruction[V]):
         self.type = type_
         self.literals = literals
 

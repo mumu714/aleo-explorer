@@ -44,20 +44,31 @@ def finalize_type_to_str(value: FinalizeType):
         return f"{plaintext_type_to_str(value.plaintext_type)}.public"
     elif isinstance(value, FutureFinalizeType):
         return f"{str(value.locator)}.future"
+    elif isinstance(value, DynamicFutureFinalizeType):
+        return "dynamic.future"
     else:
         raise NotImplementedError
 
 
 def value_type_to_mode_type_str(value: ValueType):
-    mode = value.type.name.lower()
-    if "record" in mode:
-        mode = "private"
     if isinstance(value, ConstantValueType | PublicValueType | PrivateValueType):
+        mode = value.type.name.lower()
         t = plaintext_type_to_str(value.plaintext_type)
     elif isinstance(value, RecordValueType):
+        mode = "record"
         t = str(value.identifier)
     elif isinstance(value, ExternalRecordValueType):
+        mode = "record"
         t = str(value.locator)
+    elif isinstance(value, FutureValueType):
+        mode = "future"
+        t = str(value.locator)
+    elif isinstance(value, DynamicRecordValueType):
+        mode = "record"
+        t = "dynamic"
+    elif isinstance(value, DynamicFutureValueType):
+        mode = "future"
+        t = "dynamic"
     else:
         raise NotImplementedError
     return mode, t
@@ -187,6 +198,10 @@ _instruction_type_to_str_map = {
     Instruction.Type.HashSha3_512NativeRaw: "hash.sha3_512.native.raw",
     Instruction.Type.SerializeBits: "serialize.bits",
     Instruction.Type.SerializeBitsRaw: "serialize.bits.raw",
+    Instruction.Type.CallDynamic: "call.dynamic",
+    Instruction.Type.GetRecordDynamic: "get.record.dynamic",
+    Instruction.Type.SnarkVerify: "snark.verify",
+    Instruction.Type.SnarkVerifyBatch: "snark.verify.batch",
 }
 
 def instruction_type_to_str(value: Instruction.Type):

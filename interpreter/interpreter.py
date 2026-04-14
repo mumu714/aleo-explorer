@@ -56,23 +56,26 @@ async def finalize_deploy(db: Database, cur: psycopg.AsyncCursor[dict[str, Any]]
 
     if isinstance(confirmed_transaction, AcceptedDeploy):
         deployment = cast(DeployTransaction, transaction).deployment
+        is_amendment = isinstance(deployment, DeploymentV3)
         program = deployment.program
         expected_operations = confirmed_transaction.finalize
-        for mapping in program.mappings.keys():
-            mapping_id = Field.loads(cached_get_mapping_id(str(program.id), str(mapping)))
-            if not await db.is_mapping_exists(str(mapping_id)):
-                operation = ({
-                    "type": FinalizeOperation.Type.InitializeMapping,
-                    "mapping_id": mapping_id,
-                    "program_id": program.id,
-                    "mapping": mapping,
-                })
-                operations.append(operation)
-                await execute_operations(db, cur, [operation])
+        if not is_amendment:
+            for mapping in program.mappings.keys():
+                mapping_id = Field.loads(cached_get_mapping_id(str(program.id), str(mapping)))
+                if not await db.mapping_id_exists(str(mapping_id)):
+                    operation = {
+                        "type": FinalizeOperation.Type.InitializeMapping,
+                        "mapping_id": mapping_id,
+                        "program_id": program.id,
+                        "mapping": mapping,
+                    }
+                    operations.append(operation)
+                    await execute_operations(cur, [operation])
         rejected_reason = None
         owner = cast(DeployTransaction, transaction).owner.address
     elif isinstance(confirmed_transaction, RejectedDeploy):
         rejected = cast(RejectedDeployment, confirmed_transaction.rejected)
+        is_amendment = isinstance(rejected.deploy, DeploymentV3)
         expected_operations = confirmed_transaction.finalize
         deployment = rejected.deploy
         program = deployment.program
@@ -81,7 +84,8 @@ async def finalize_deploy(db: Database, cur: psycopg.AsyncCursor[dict[str, Any]]
     else:
         raise NotImplementedError
 
-    if program.constructor.value is not None:
+    # V3 amendments don't run constructors or initialize mappings
+    if not is_amendment and program.constructor.value is not None:
         try:
             operations.extend(
                 await execute_finalizer(
@@ -101,6 +105,8 @@ def load_input_from_arguments(arguments: list[Argument]) -> list[Value]:
             inputs.append(PlaintextValue(plaintext=argument.plaintext))
         elif isinstance(argument, FutureArgument):
             inputs.append(FutureValue(future=argument.future))
+        elif isinstance(argument, DynamicFutureArgument):
+            inputs.append(DynamicFutureValue(dynamic_future=argument.dynamic_future))
         else:
             raise NotImplementedError
     return inputs
@@ -149,7 +155,8 @@ async def _trace_execution(db: Database, transition_ids: list[TransitionID], pro
         if isinstance(cmd, AwaitCommand):
             locator = cmd.register.locator
             if locator not in finalize_register_map:
-                raise RuntimeError("invalid await command")
+                # dynamic call - resolved at runtime via dynamic_future_map
+                continue
             called_node = finalize_register_map[locator]
             async_order.append(called_node["transition_id"])
             p, f = called_node["name"].split("/")
@@ -225,21 +232,30 @@ async def finalize_execute(db: Database, cur: psycopg.AsyncCursor[dict[str, Any]
 
             transition_ids = [x.id for x in execution.transitions]
 
+            # Build dynamic_future_map: for each transition with a Future output,
+            # compute the DynamicFuture key so DynamicFutureValues can be resolved at await time.
+            dynamic_future_map: dict[tuple[Field, Field, Field, Field], tuple[Future, TransitionID]] = {}
+            if not hasattr(aleo_explorer_rust, 'dynamic_future_key_from_future'):
+                raise RuntimeError("aleo_explorer_rust.dynamic_future_key_from_future not available - update aleo-explorer-rust")
+            for t in execution.transitions:
+                if len(t.outputs) > 0:
+                    last_output = t.outputs[-1]
+                    if isinstance(last_output, FutureTransitionOutput) and last_output.future.value is not None:
+                        future_val = last_output.future.value
+                        key_bytes = aleo_explorer_rust.dynamic_future_key_from_future(future_val.dump())
+                        key = (Field.load(BytesIO(key_bytes[0])), Field.load(BytesIO(key_bytes[1])),
+                               Field.load(BytesIO(key_bytes[2])), Field.load(BytesIO(key_bytes[3])))
+                        dynamic_future_map[key] = (future_val, t.id)
+
             async_order = await build_async_order(db, transition_ids, program, future.function_name)
 
             inputs: list[Value] = load_input_from_arguments(future.arguments)
             try:
                 operations.extend(
-                    await execute_finalizer(db, cur, finalize_state, async_order, set(), program, future.function_name, inputs, mapping_cache, local_mapping_cache, allow_state_change)
+                    await execute_finalizer(db, cur, finalize_state, async_order, set(), program, future.function_name, inputs, mapping_cache, local_mapping_cache, allow_state_change, dynamic_future_map=dynamic_future_map)
                 )
             except ExecuteError as e:
-                for ts in execution.transitions:
-                    if ts.id == e.transition_id:
-                        index = execution.transitions.index(ts)
-                        break
-                else:
-                    raise RuntimeError("rejected transition not found in transaction")
-                reject_reason = f"execute error: {e}, at transition #{index}, instruction \"{e.instruction}\""
+                reject_reason = f"execute error: {e}, at transition #{e.transition_index}, instruction \"{e.instruction}\""
                 operations = []
     if isinstance(confirmed_transaction, RejectedExecute) and reject_reason is None:
         # execute fee as part of rejected execute as it failed here

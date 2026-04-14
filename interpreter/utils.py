@@ -1,10 +1,18 @@
 from hashlib import sha3_256
+from io import BytesIO
 
 from aleo_types import *
 from db import Database
 from node import Network
 from .environment import Registers
 
+_g_powers_cache: list[Group] | None = None
+
+def _get_g_powers() -> list[Group]:
+    global _g_powers_cache
+    if _g_powers_cache is None:
+        _g_powers_cache = [Group.load(BytesIO(b)) for b in aleo_explorer_rust.aleo_g_powers()]
+    return _g_powers_cache
 
 class FinalizeState:
     def __init__(self, block: Block):
@@ -168,8 +176,65 @@ async def load_plaintext_from_operand(operand: Operand, registers: Registers, fi
                 primitive=cast(i64, finalize_state.block_timestamp)
             )
         )
+    elif isinstance(operand, AleoGeneratorOperand):
+        g_powers = _get_g_powers()
+        return LiteralPlaintext(
+            literal=Literal(
+                type_=Literal.Type.Group,
+                primitive=g_powers[0]
+            )
+        )
+    elif isinstance(operand, AleoGeneratorPowersOperand):
+        g_powers = _get_g_powers()
+        if operand.index.value is not None:
+            return LiteralPlaintext(
+                literal=Literal(
+                    type_=Literal.Type.Group,
+                    primitive=g_powers[int(operand.index.value)]
+                )
+            )
+        else:
+            return ArrayPlaintext(
+                elements=Vec[Plaintext, u32]([
+                    LiteralPlaintext(
+                        literal=Literal(
+                            type_=Literal.Type.Group,
+                            primitive=g
+                        )
+                    ) for g in g_powers
+                ])
+            )
     else:
         raise NotImplementedError
+
+def identifier_from_field(field: Field) -> Identifier:
+    """Decode a field element to an Identifier (reverse of Identifier::to_field)."""
+    field_bytes = field.dump()
+    # Field LE bytes encode the ASCII identifier, terminated by zero bytes
+    name_bytes = field_bytes.rstrip(b"\x00")
+    if len(name_bytes) == 0:
+        raise ValueError("empty identifier")
+    return Identifier(value=name_bytes.decode("ascii"))
+
+
+async def resolve_dynamic_program_mapping(
+    operands: list[Operand], registers: Registers, finalize_state: FinalizeState, db: Database, program: Program
+) -> tuple[ProgramID, Identifier]:
+    """Resolve program_name, program_network, mapping_name operands to (ProgramID, mapping Identifier)."""
+    program_name_plaintext = await load_plaintext_from_operand(operands[0], registers, finalize_state, db, program)
+    program_network_plaintext = await load_plaintext_from_operand(operands[1], registers, finalize_state, db, program)
+    mapping_name_plaintext = await load_plaintext_from_operand(operands[2], registers, finalize_state, db, program)
+
+    if not isinstance(program_name_plaintext, LiteralPlaintext) or not isinstance(program_network_plaintext, LiteralPlaintext) or not isinstance(mapping_name_plaintext, LiteralPlaintext):
+        raise TypeError("dynamic operands must be literals")
+
+    program_name = identifier_from_field(cast(Field, program_name_plaintext.literal.primitive))
+    program_network = identifier_from_field(cast(Field, program_network_plaintext.literal.primitive))
+    mapping_name = identifier_from_field(cast(Field, mapping_name_plaintext.literal.primitive))
+
+    program_id = ProgramID(name=program_name, network=program_network)
+    return program_id, mapping_name
+
 
 def load_future_from_operand(operand: Operand, registers: Registers, finalize_state: FinalizeState) -> Future:
     if not isinstance(operand, RegisterOperand):

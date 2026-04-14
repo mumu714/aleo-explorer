@@ -295,6 +295,9 @@ class Command(EnumBaseSerialize, RustEnum, Serializable, JSONSerialize):
         BranchEq = auto()
         BranchNeq = auto()
         Position = auto()
+        ContainsDynamic = auto()
+        GetDynamic = auto()
+        GetOrUseDynamic = auto()
 
     fee_map = {
         Type.Instruction: 0,
@@ -335,6 +338,12 @@ class Command(EnumBaseSerialize, RustEnum, Serializable, JSONSerialize):
             return BranchNeqCommand.load(data)
         elif type_ == cls.Type.Position:
             return PositionCommand.load(data)
+        elif type_ == cls.Type.ContainsDynamic:
+            return ContainsDynamicCommand.load(data)
+        elif type_ == cls.Type.GetDynamic:
+            return GetDynamicCommand.load(data)
+        elif type_ == cls.Type.GetOrUseDynamic:
+            return GetOrUseDynamicCommand.load(data)
         else:
             raise ValueError("Invalid variant")
 
@@ -542,11 +551,67 @@ class PositionCommand(Command):
         return cls(position=position)
 
 
+class ContainsDynamicCommand(Command):
+    type = Command.Type.ContainsDynamic
+
+    def __init__(self, *, operands: Vec[Operand, FixedSize[4]], destination: Register):
+        self.operands = operands
+        self.destination = destination
+
+    def dump(self) -> bytes:
+        return self.type.dump() + self.operands.dump() + self.destination.dump()
+
+    @classmethod
+    def load(cls, data: BytesIO):
+        operands = Vec[Operand, FixedSize[4]].load(data)
+        destination = Register.load(data)
+        return cls(operands=operands, destination=destination)
+
+
+class GetDynamicCommand(Command):
+    type = Command.Type.GetDynamic
+
+    def __init__(self, *, operands: Vec[Operand, FixedSize[4]], destination: Register, destination_type: PlaintextType):
+        self.operands = operands
+        self.destination = destination
+        self.destination_type = destination_type
+
+    def dump(self) -> bytes:
+        return self.type.dump() + self.operands.dump() + self.destination.dump() + self.destination_type.dump()
+
+    @classmethod
+    def load(cls, data: BytesIO):
+        operands = Vec[Operand, FixedSize[4]].load(data)
+        destination = Register.load(data)
+        destination_type = PlaintextType.load(data)
+        return cls(operands=operands, destination=destination, destination_type=destination_type)
+
+
+class GetOrUseDynamicCommand(Command):
+    type = Command.Type.GetOrUseDynamic
+
+    def __init__(self, *, operands: Vec[Operand, FixedSize[5]], destination: Register, destination_type: PlaintextType):
+        self.operands = operands
+        self.destination = destination
+        self.destination_type = destination_type
+
+    def dump(self) -> bytes:
+        return self.type.dump() + self.operands.dump() + self.destination.dump() + self.destination_type.dump()
+
+    @classmethod
+    def load(cls, data: BytesIO):
+        operands = Vec[Operand, FixedSize[5]].load(data)
+        destination = Register.load(data)
+        destination_type = PlaintextType.load(data)
+        return cls(operands=operands, destination=destination, destination_type=destination_type)
+
+
 class FinalizeType(EnumBaseSerialize, RustEnum, Serializable, JSONSerialize):
 
     class Type(IntEnumu8):
         Plaintext = 0
         Future = 1
+        DynamicFuture = 2
 
     type: Type
 
@@ -557,6 +622,8 @@ class FinalizeType(EnumBaseSerialize, RustEnum, Serializable, JSONSerialize):
             return PlaintextFinalizeType.load(data)
         elif type_ == cls.Type.Future:
             return FutureFinalizeType.load(data)
+        elif type_ == cls.Type.DynamicFuture:
+            return DynamicFutureFinalizeType.load(data)
         else:
             raise ValueError("Invalid variant")
 
@@ -587,6 +654,17 @@ class FutureFinalizeType(FinalizeType):
     def load(cls, data: BytesIO):
         locator = Locator.load(data)
         return cls(locator=locator)
+
+class DynamicFutureFinalizeType(FinalizeType):
+    type = FinalizeType.Type.DynamicFuture
+
+    def dump(self) -> bytes:
+        return self.type.dump()
+
+    @classmethod
+    def load(cls, data: BytesIO):
+        return cls()
+
 
 class FinalizeInput(Serializable, JSONSerialize):
 
@@ -647,6 +725,8 @@ class ValueType(EnumBaseSerialize, RustEnum, Serializable, JSONSerialize):
         Record = 3
         ExternalRecord = 4
         Future = 5
+        DynamicRecord = 6
+        DynamicFuture = 7
 
     type: Type
 
@@ -665,6 +745,10 @@ class ValueType(EnumBaseSerialize, RustEnum, Serializable, JSONSerialize):
             return ExternalRecordValueType.load(data)
         elif type_ == cls.Type.Future:
             return FutureValueType.load(data)
+        elif type_ == cls.Type.DynamicRecord:
+            return DynamicRecordValueType.load(data)
+        elif type_ == cls.Type.DynamicFuture:
+            return DynamicFutureValueType.load(data)
         else:
             raise ValueError("Invalid variant")
 
@@ -757,6 +841,28 @@ class FutureValueType(ValueType):
     def load(cls, data: BytesIO):
         locator = Locator.load(data)
         return cls(locator=locator)
+
+
+class DynamicRecordValueType(ValueType):
+    type = ValueType.Type.DynamicRecord
+
+    def dump(self) -> bytes:
+        return self.type.dump()
+
+    @classmethod
+    def load(cls, data: BytesIO):
+        return cls()
+
+
+class DynamicFutureValueType(ValueType):
+    type = ValueType.Type.DynamicFuture
+
+    def dump(self) -> bytes:
+        return self.type.dump()
+
+    @classmethod
+    def load(cls, data: BytesIO):
+        return cls()
 
 
 class FunctionInput(Serializable, JSONSerialize):
@@ -1238,6 +1344,8 @@ class Deployment(EnumBaseSerialize, Serializable, JSONSerialize):
             return DeploymentV1.load(data)
         elif version == 2:
             return DeploymentV2.load(data)
+        elif version == 3:
+            return DeploymentV3.load(data)
         raise ValueError("invalid deployment version")
 
 
@@ -1302,6 +1410,35 @@ class DeploymentV2(Deployment):
         program_checksum = Vec[u8, FixedSize[32]].load(data)
         program_owner = Address.load(data)
         return cls(edition=edition, program=program, verifying_keys=verifying_keys, program_checksum=program_checksum, program_owner=program_owner)
+
+
+class DeploymentV3(Deployment):
+    version = u8(3)
+
+    def __init__(self, *, edition: u16, program: Program,
+                 verifying_keys: Vec[Tuple[Identifier, VerifyingKey, Certificate], u16],
+                 program_checksum: Vec[u8, FixedSize[32]]):
+        self.edition = edition
+        self.program = program
+        self.verifying_keys = verifying_keys
+        self.program_checksum = program_checksum
+
+    def dump(self) -> bytes:
+        res = b""
+        res += self.version.dump()
+        res += self.edition.dump()
+        res += self.program.dump()
+        res += self.verifying_keys.dump()
+        res += self.program_checksum.dump()
+        return res
+
+    @classmethod
+    def load(cls, data: BytesIO):
+        edition = u16.load(data)
+        program = Program.load(data)
+        verifying_keys = Vec[Tuple[Identifier, VerifyingKey, Certificate], u16].load(data)
+        program_checksum = Vec[u8, FixedSize[32]].load(data)
+        return cls(edition=edition, program=program, verifying_keys=verifying_keys, program_checksum=program_checksum)
 
 
 class WitnessCommitments(Serializable):
@@ -2126,6 +2263,8 @@ class Value(EnumBaseSerialize, RustEnum, Serializable):
         Plaintext = 0
         Record = 1
         Future = 2
+        DynamicRecord = 3
+        DynamicFuture = 4
 
     type: Type
 
@@ -2138,6 +2277,10 @@ class Value(EnumBaseSerialize, RustEnum, Serializable):
             return RecordValue.load(data)
         elif type_ == Value.Type.Future:
             return FutureValue.load(data)
+        elif type_ == Value.Type.DynamicRecord:
+            return DynamicRecordValue.load(data)
+        elif type_ == Value.Type.DynamicFuture:
+            return DynamicFutureValue.load(data)
         else:
             raise ValueError("unknown value type")
 
@@ -2214,6 +2357,7 @@ class Argument(EnumBaseSerialize, RustEnum, Serializable, JSONSerialize):
     class Type(IntEnumu8):
         Plaintext = 0
         Future = 1
+        DynamicFuture = 2
 
     type: Type
 
@@ -2226,6 +2370,8 @@ class Argument(EnumBaseSerialize, RustEnum, Serializable, JSONSerialize):
             return PlaintextArgument.load(data)
         elif type_ == Argument.Type.Future:
             return FutureArgument.load(data)
+        elif type_ == Argument.Type.DynamicFuture:
+            return DynamicFutureArgument.load(data)
         else:
             raise ValueError("unknown argument type")
 
@@ -2298,6 +2444,94 @@ class FutureValue(Value):
         return str(self.future)
 
 
+class DynamicFutureArgument(Argument):
+    type = Argument.Type.DynamicFuture
+
+    def __init__(self, *, dynamic_future: DynamicFuture):
+        self.dynamic_future = dynamic_future
+
+    def dump(self) -> bytes:
+        data = self.type.dump() + self.dynamic_future.dump()
+        return len(data).to_bytes(2, "little") + data
+
+    @classmethod
+    def load(cls, data: BytesIO):
+        dynamic_future = DynamicFuture.load(data)
+        return cls(dynamic_future=dynamic_future)
+
+    def json(self, compatible: bool = False) -> JSONType:
+        return str(self)
+
+    def __str__(self):
+        return f"DynamicFuture({self.dynamic_future.program_name}, {self.dynamic_future.function_name})"
+
+    def __repr__(self):
+        return str(self)
+
+
+class DynamicRecordValue(Value):
+    type = Value.Type.DynamicRecord
+
+    def __init__(self, *, version: u8, owner: Address, root: Field, nonce: Group):
+        self.version = version
+        self.owner = owner
+        self.root = root
+        self.nonce = nonce
+
+    def dump(self) -> bytes:
+        return self.type.dump() + self.version.dump() + self.owner.dump() + self.root.dump() + self.nonce.dump()
+
+    @classmethod
+    def load(cls, data: BytesIO):
+        version = u8.load(data)
+        owner = Address.load(data)
+        root = Field.load(data)
+        nonce = Group.load(data)
+        return cls(version=version, owner=owner, root=root, nonce=nonce)
+
+
+class DynamicFuture(Serializable):
+    """Shared DynamicFuture structure used by both Value::DynamicFuture and Argument::DynamicFuture."""
+
+    def __init__(self, *, program_name: Field, program_network: Field, function_name: Field, checksum: Field):
+        self.program_name = program_name
+        self.program_network = program_network
+        self.function_name = function_name
+        self.checksum = checksum
+
+    def dump(self) -> bytes:
+        return u8(1).dump() + self.program_name.dump() + self.program_network.dump() + self.function_name.dump() + self.checksum.dump()
+
+    @classmethod
+    def load(cls, data: BytesIO):
+        version = u8.load(data)
+        if version != 1:
+            raise ValueError(f"invalid dynamic future version: {version}")
+        program_name = Field.load(data)
+        program_network = Field.load(data)
+        function_name = Field.load(data)
+        checksum = Field.load(data)
+        return cls(program_name=program_name, program_network=program_network, function_name=function_name, checksum=checksum)
+
+    def key(self) -> tuple[Field, Field, Field, Field]:
+        return (self.program_name, self.program_network, self.function_name, self.checksum)
+
+
+class DynamicFutureValue(Value):
+    type = Value.Type.DynamicFuture
+
+    def __init__(self, *, dynamic_future: DynamicFuture):
+        self.dynamic_future = dynamic_future
+
+    def dump(self) -> bytes:
+        return self.type.dump() + self.dynamic_future.dump()
+
+    @classmethod
+    def load(cls, data: BytesIO):
+        dynamic_future = DynamicFuture.load(data)
+        return cls(dynamic_future=dynamic_future)
+
+
 class TransitionInput(EnumBaseSerialize, RustEnum, Serializable, JSONSerialize):
 
     class Type(IntEnumu8):
@@ -2306,6 +2540,9 @@ class TransitionInput(EnumBaseSerialize, RustEnum, Serializable, JSONSerialize):
         Private = 2
         Record = 3
         ExternalRecord = 4
+        DynamicRecord = 5
+        RecordWithDynamicID = 6
+        ExternalRecordWithDynamicID = 7
 
     type: Type
 
@@ -2322,6 +2559,12 @@ class TransitionInput(EnumBaseSerialize, RustEnum, Serializable, JSONSerialize):
             return RecordTransitionInput.load(data)
         elif type_ == TransitionInput.Type.ExternalRecord:
             return ExternalRecordTransitionInput.load(data)
+        elif type_ == TransitionInput.Type.DynamicRecord:
+            return DynamicRecordTransitionInput.load(data)
+        elif type_ == TransitionInput.Type.RecordWithDynamicID:
+            return RecordWithDynamicIDTransitionInput.load(data)
+        elif type_ == TransitionInput.Type.ExternalRecordWithDynamicID:
+            return ExternalRecordWithDynamicIDTransitionInput.load(data)
         else:
             raise ValueError("unknown transition input type")
 
@@ -2442,6 +2685,78 @@ class ExternalRecordTransitionInput(TransitionInput):
         }
 
 
+class DynamicRecordTransitionInput(TransitionInput):
+    type = TransitionInput.Type.DynamicRecord
+
+    def __init__(self, *, input_hash: Field):
+        self.input_hash = input_hash
+
+    def dump(self) -> bytes:
+        return self.type.dump() + self.input_hash.dump()
+
+    @classmethod
+    def load(cls, data: BytesIO):
+        input_hash = Field.load(data)
+        return cls(input_hash=input_hash)
+
+    def json_compatible(self) -> JSONType:
+        return {
+            "type": enum_name_convert(self.type.name),
+            "id": self.input_hash.json_compatible()
+        }
+
+
+class RecordWithDynamicIDTransitionInput(TransitionInput):
+    type = TransitionInput.Type.RecordWithDynamicID
+
+    def __init__(self, *, serial_number: Field, tag: Field, dynamic_id: Field):
+        self.serial_number = serial_number
+        self.tag = tag
+        self.dynamic_id = dynamic_id
+
+    def dump(self) -> bytes:
+        return self.type.dump() + self.serial_number.dump() + self.tag.dump() + self.dynamic_id.dump()
+
+    @classmethod
+    def load(cls, data: BytesIO):
+        serial_number = Field.load(data)
+        tag = Field.load(data)
+        dynamic_id = Field.load(data)
+        return cls(serial_number=serial_number, tag=tag, dynamic_id=dynamic_id)
+
+    def json_compatible(self) -> JSONType:
+        return {
+            "type": enum_name_convert(self.type.name),
+            "id": self.serial_number.json_compatible(),
+            "tag": self.tag.json_compatible(),
+            "dynamic_id": self.dynamic_id.json_compatible()
+        }
+
+
+class ExternalRecordWithDynamicIDTransitionInput(TransitionInput):
+    type = TransitionInput.Type.ExternalRecordWithDynamicID
+
+    def __init__(self, *, external_hash: Field, dynamic_id: Field):
+        self.external_hash = external_hash
+        self.dynamic_id = dynamic_id
+
+    def dump(self) -> bytes:
+        return self.type.dump() + self.external_hash.dump() + self.dynamic_id.dump()
+
+    @classmethod
+    def load(cls, data: BytesIO):
+        external_hash = Field.load(data)
+        dynamic_id = Field.load(data)
+        return cls(external_hash=external_hash, dynamic_id=dynamic_id)
+
+    def json_compatible(self) -> JSONType:
+        return {
+            "type": enum_name_convert(self.type.name),
+            "id": self.external_hash.json_compatible(),
+            "dynamic_id": self.dynamic_id.json_compatible()
+        }
+
+
 class TransitionOutput(EnumBaseSerialize, RustEnum, Serializable, JSONSerialize):
 
     class Type(IntEnumu8):
@@ -2451,6 +2766,9 @@ class TransitionOutput(EnumBaseSerialize, RustEnum, Serializable, JSONSerialize)
         Record = 3
         ExternalRecord = 4
         Future = 5
+        DynamicRecord = 6
+        RecordWithDynamicID = 7
+        ExternalRecordWithDynamicID = 8
 
     type: Type
 
@@ -2469,6 +2787,12 @@ class TransitionOutput(EnumBaseSerialize, RustEnum, Serializable, JSONSerialize)
             return ExternalRecordTransitionOutput.load(data)
         elif type_ == TransitionOutput.Type.Future:
             return FutureTransitionOutput.load(data)
+        elif type_ == TransitionOutput.Type.DynamicRecord:
+            return DynamicRecordTransitionOutput.load(data)
+        elif type_ == TransitionOutput.Type.RecordWithDynamicID:
+            return RecordWithDynamicIDTransitionOutput.load(data)
+        elif type_ == TransitionOutput.Type.ExternalRecordWithDynamicID:
+            return ExternalRecordWithDynamicIDTransitionOutput.load(data)
         else:
             raise ValueError("unknown transition output type")
 
@@ -2632,6 +2956,99 @@ class FutureTransitionOutput(TransitionOutput):
             "type": enum_name_convert(self.type.name),
             "id": self.future_hash.json_compatible(),
             "value": self.future.json_compatible() if self.future else None
+        }
+
+
+class DynamicRecordTransitionOutput(TransitionOutput):
+    type = TransitionOutput.Type.DynamicRecord
+
+    def __init__(self, *, commitment: Field):
+        self.commitment = commitment
+
+    def dump(self) -> bytes:
+        return self.type.dump() + self.commitment.dump()
+
+    @classmethod
+    def load(cls, data: BytesIO):
+        commitment = Field.load(data)
+        return cls(commitment=commitment)
+
+    def json_compatible(self) -> JSONType:
+        return {
+            "type": enum_name_convert(self.type.name),
+            "id": self.commitment.json_compatible()
+        }
+
+
+class RecordWithDynamicIDTransitionOutput(TransitionOutput):
+    type = TransitionOutput.Type.RecordWithDynamicID
+
+    def __init__(self, *, commitment: Field, checksum: Field, record_ciphertext: Option[Record[Ciphertext]],
+                 sender_ciphertext: Option[Field], dynamic_id: Field):
+        self.commitment = commitment
+        self.checksum = checksum
+        self.record_ciphertext = record_ciphertext
+        self.sender_ciphertext = sender_ciphertext
+        self.dynamic_id = dynamic_id
+
+    def dump(self) -> bytes:
+        res = self.type.dump() + self.commitment.dump() + self.checksum.dump() + self.record_ciphertext.dump()
+        if self.record_ciphertext.value is not None and self.record_ciphertext.value.version != 0:
+            res += u8().dump()
+            if self.sender_ciphertext.value is None:
+                raise ValueError("sender ciphertext must be present for non-zero record ciphertext version")
+            res += self.sender_ciphertext.value.dump()
+        res += self.dynamic_id.dump()
+        return res
+
+    @classmethod
+    def load(cls, data: BytesIO):
+        commitment = Field.load(data)
+        checksum = Field.load(data)
+        record_ciphertext = Option[Record[Ciphertext]].load(data)
+        if record_ciphertext.value is not None and record_ciphertext.value.version != 0:
+            sender_ciphertext_version = u8.load(data)
+            if sender_ciphertext_version != 0:
+                raise ValueError(f"unsupported record ciphertext version {sender_ciphertext_version}")
+            else:
+                sender_ciphertext = Option[Field](Field.load(data))
+        else:
+            sender_ciphertext = Option[Field](None)
+        dynamic_id = Field.load(data)
+        return cls(commitment=commitment, checksum=checksum, record_ciphertext=record_ciphertext,
+                   sender_ciphertext=sender_ciphertext, dynamic_id=dynamic_id)
+
+    def json_compatible(self) -> JSONType:
+        return {
+            "type": enum_name_convert(self.type.name),
+            "id": self.commitment.json_compatible(),
+            "checksum": self.checksum.json_compatible(),
+            "value": self.record_ciphertext.json_compatible() if self.record_ciphertext else None,
+            "dynamic_id": self.dynamic_id.json_compatible()
+        }
+
+
+class ExternalRecordWithDynamicIDTransitionOutput(TransitionOutput):
+    type = TransitionOutput.Type.ExternalRecordWithDynamicID
+
+    def __init__(self, *, external_hash: Field, dynamic_id: Field):
+        self.external_hash = external_hash
+        self.dynamic_id = dynamic_id
+
+    def dump(self) -> bytes:
+        return self.type.dump() + self.external_hash.dump() + self.dynamic_id.dump()
+
+    @classmethod
+    def load(cls, data: BytesIO):
+        external_hash = Field.load(data)
+        dynamic_id = Field.load(data)
+        return cls(external_hash=external_hash, dynamic_id=dynamic_id)
+
+    def json_compatible(self) -> JSONType:
+        return {
+            "type": enum_name_convert(self.type.name),
+            "id": self.external_hash.json_compatible(),
+            "dynamic_id": self.dynamic_id.json_compatible()
         }
 
 
