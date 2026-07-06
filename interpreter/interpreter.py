@@ -70,7 +70,7 @@ async def finalize_deploy(db: Database, cur: psycopg.AsyncCursor[dict[str, Any]]
                         "mapping": mapping,
                     }
                     operations.append(operation)
-                    await execute_operations(cur, [operation])
+                    await execute_operations(db, cur, [operation])
         rejected_reason = None
         owner = cast(DeployTransaction, transaction).owner.address
     elif isinstance(confirmed_transaction, RejectedDeploy):
