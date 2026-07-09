@@ -486,7 +486,6 @@ class bool_(Sized, Serializable, JSONSerialize, And, Or, Not, Xor, Nand, Nor, Ca
         elif value == 1:
             value = True
         else:
-            breakpoint()
             raise ValueError("invalid value for bool")
         self = cls(value)
         return self
@@ -555,7 +554,7 @@ class bool_(Sized, Serializable, JSONSerialize, And, Or, Not, Xor, Nand, Nor, Ca
         if not isinstance(destination_type, LiteralType):
             raise ValueError("invalid type")
         return destination_type.primitive_type.load(BytesIO(aleo_explorer_rust.cast(str(self), LiteralType.Boolean, destination_type, lossy)))
-    
+
     __match_args__ = ("value",)
 
 

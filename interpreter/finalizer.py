@@ -80,7 +80,22 @@ async def execute_finalizer(db: Database, cur: Optional[psycopg.AsyncCursor[dict
             if not isinstance(ir, LocatorRegister):
                 raise TypeError("invalid input register type")
             registers[int(ir.locator)] = i
+    return await _execute_commands(
+        db, cur, finalize_state, transitions, transition_index, transition_index_executed,
+        program, function_name, finalize.commands, finalize.positions, registers,
+        mapping_cache, local_mapping_cache, allow_state_change, dynamic_future_map,
+    )
 
+
+@profile  # pyright: ignore [reportUntypedFunctionDecorator]
+async def _execute_commands(db: Database, cur: Optional[psycopg.AsyncCursor[dict[str, Any]]], finalize_state: FinalizeState,
+                            transitions: list[TransitionID], transition_index: int, transition_index_executed: set[int],
+                            program: Program, function_name: Identifier, commands: list[Command], positions: dict[Identifier, int],
+                            registers: Registers, mapping_cache: dict[Field, MappingCacheDict], local_mapping_cache: dict[Field, MappingCacheDict],
+                            allow_state_change: bool,
+                            dynamic_future_map: Optional[dict[tuple[Field, Field, Field, Field], tuple[Future, TransitionID]]] = None,
+                            ) -> list[dict[str, Any]]:
+    operations: list[dict[str, Any]] = []   
     debug = os.environ.get("DEBUG", False)
     timer = time.perf_counter_ns()
 
@@ -100,8 +115,8 @@ async def execute_finalizer(db: Database, cur: Optional[psycopg.AsyncCursor[dict
             local_mapping_cache[mapping_id_] = {}
         return mapping_id_
 
-    while pc < len(finalize.commands):
-        c = finalize.commands[pc]
+    while pc < len(commands):
+        c = commands[pc]
         if debug:
             if isinstance(c, InstructionCommand):
                 print(disasm_instruction(c.instruction))
@@ -111,13 +126,20 @@ async def execute_finalizer(db: Database, cur: Optional[psycopg.AsyncCursor[dict
         try:
             if isinstance(c, InstructionCommand):
                 instruction = c.instruction
-                try:
-                    await execute_instruction(instruction, program, registers, finalize_state, db)
-                except (AssertionError, OverflowError, ZeroDivisionError, RustExecuteError) as e:
-                    raise ExecuteError(str(e), e, disasm_instruction(instruction), transition_index, str(program.id), str(function_name))
-                except Exception:
-                    registers.dump()
-                    raise
+                if isinstance(instruction.literals, CallInstruction):
+                    await _invoke_view(
+                        instruction.literals, db, cur, finalize_state, transitions, transition_index,
+                        transition_index_executed, program, registers, mapping_cache, local_mapping_cache,
+                        allow_state_change, dynamic_future_map,
+                    )
+                else:
+                    try:
+                        await execute_instruction(instruction, program, registers, finalize_state, db)
+                    except (AssertionError, OverflowError, ZeroDivisionError, RustExecuteError) as e:
+                        raise ExecuteError(str(e), e, disasm_instruction(instruction), transition_index, str(program.id), str(function_name))
+                    except Exception:
+                        registers.dump()
+                        raise
 
             elif isinstance(c, ContainsCommand):
                 operator = c.mapping
@@ -286,7 +308,7 @@ async def execute_finalizer(db: Database, cur: Optional[psycopg.AsyncCursor[dict
                 first = await load_plaintext_from_operand(c.first, registers, finalize_state, db, program)
                 second = await load_plaintext_from_operand(c.second, registers, finalize_state, db, program)
                 if (first == second and isinstance(c, BranchEqCommand)) or (first != second and isinstance(c, BranchNeqCommand)):
-                    pc = finalize.positions[c.position]
+                    pc = positions[c.position]
                     continue
 
             elif isinstance(c, PositionCommand):
@@ -325,14 +347,13 @@ async def execute_finalizer(db: Database, cur: Optional[psycopg.AsyncCursor[dict
             
             elif isinstance(c, ContainsDynamicCommand):
                 program_id, mapping = await resolve_dynamic_program_mapping(list(c.operands[:3]), registers, finalize_state, db, program)
-                mapping_id = load_mapping_cache_id(program_id, mapping)
+                mapping_id = await load_mapping_cache_id(program_id, mapping)
                 key = await load_plaintext_from_operand(c.operands[3], registers, finalize_state, db, program)
                 key_id = Field.loads(cached_get_key_id(str(program_id), str(mapping), key.dump()))
                 if not allow_state_change and key_id in local_mapping_cache[mapping_id]:
                     contains = local_mapping_cache[mapping_id][key_id]["value"] is not None
                 else:
-                    data = await mapping_cache[mapping_id][key_id]
-                    contains = data is not None
+                    contains = key_id in mapping_cache[mapping_id]
                 value = PlaintextValue(
                     plaintext=LiteralPlaintext(
                         literal=Literal(type_=Literal.Type.Boolean, primitive=bool_(contains))
@@ -342,7 +363,7 @@ async def execute_finalizer(db: Database, cur: Optional[psycopg.AsyncCursor[dict
 
             elif isinstance(c, GetDynamicCommand | GetOrUseDynamicCommand):
                 program_id, mapping = await resolve_dynamic_program_mapping(list(c.operands[:3]), registers, finalize_state, db, program)
-                mapping_id = load_mapping_cache_id(program_id, mapping)
+                mapping_id = await load_mapping_cache_id(program_id, mapping)
                 key = await load_plaintext_from_operand(c.operands[3], registers, finalize_state, db, program)
                 key_id = Field.loads(cached_get_key_id(str(program_id), str(mapping), key.dump()))
 
@@ -355,14 +376,13 @@ async def execute_finalizer(db: Database, cur: Optional[psycopg.AsyncCursor[dict
                     else:
                         value = local_mapping_cache[mapping_id][key_id]["value"]
                 else:
-                    data = await mapping_cache[mapping_id][key_id]
-                    if data is None:
+                    if key_id not in mapping_cache[mapping_id]:
                         if isinstance(c, GetDynamicCommand):
                             raise ExecuteError(f"key {key} not found in mapping {program_id}/{mapping}", None, disasm_command(c), transition_index, str(program.id), str(function_name))
                         default = await load_plaintext_from_operand(c.operands[4], registers, finalize_state, db, program)
                         value = PlaintextValue(plaintext=default)
                     else:
-                        value = data["value"]
+                        value = mapping_cache[mapping_id][key_id]["value"]
                 if not isinstance(value, PlaintextValue):
                     raise TypeError("invalid value type")
                 store_plaintext_to_register(value.plaintext, c.destination, registers)
@@ -381,3 +401,58 @@ async def execute_finalizer(db: Database, cur: Optional[psycopg.AsyncCursor[dict
     if debug:
         print(f"execution took {time.perf_counter_ns() - timer} ns")
     return operations
+
+
+async def _invoke_view(call: CallInstruction, db: Database, cur: Optional[psycopg.AsyncCursor[dict[str, Any]]],
+                       finalize_state: FinalizeState, transitions: list[TransitionID], transition_index: int,
+                       transition_index_executed: set[int], program: Program, caller_registers: Registers,
+                       mapping_cache: dict[Field, MappingCacheDict], local_mapping_cache: dict[Field, MappingCacheDict],
+                       allow_state_change: bool,
+                       dynamic_future_map: Optional[dict[tuple[Field, Field, Field, Field], tuple[Future, TransitionID]]] = None,
+                       ):
+    # A `call` in a finalize body always targets a view (V15): resource = a view in the current
+    # program, locator = a view in an imported program. The view is a read-only leaf - it cannot
+    # call, write, await, or use rand - so it emits no finalize operations and never re-enters here.
+    operator = call.operator
+    if isinstance(operator, LocatorCallOperator):
+        callee_id = operator.locator.id
+        view_name = operator.locator.resource
+        latest_edition = await db.get_program_latest_edition(str(callee_id))
+        if latest_edition is None:
+            raise RuntimeError("program not found")
+        callee_program = await get_program(db, str(callee_id), latest_edition)
+        if callee_program is None:
+            raise RuntimeError("program not found")
+    elif isinstance(operator, ResourceCallOperator):
+        callee_id = program.id
+        view_name = operator.resource
+        callee_program = program
+    else:
+        raise TypeError("invalid call operator")
+
+    if view_name not in callee_program.views:
+        raise RuntimeError(f"view {view_name} not found in program {callee_id}")
+    view = callee_program.views[view_name]
+    if len(call.operands) != len(view.inputs):
+        raise TypeError("invalid number of view inputs")
+
+    view_registers = Registers()
+    for view_input, operand in zip(view.inputs, call.operands):
+        input_register = view_input.register
+        if not isinstance(input_register, LocatorRegister):
+            raise TypeError("invalid view input register type")
+        input_plaintext = await load_plaintext_from_operand(operand, caller_registers, finalize_state, db, program)
+        view_registers[int(input_register.locator)] = PlaintextValue(plaintext=input_plaintext)
+
+    # Returned operations are always empty (views cannot write), so they are intentionally dropped.
+    await _execute_commands(
+        db, cur, finalize_state, transitions, transition_index, transition_index_executed,
+        callee_program, view_name, view.commands, view.positions, view_registers,
+        mapping_cache, local_mapping_cache, allow_state_change, dynamic_future_map,
+    )
+
+    if len(call.destinations) != len(view.outputs):
+        raise TypeError("invalid number of view outputs")
+    for destination, view_output in zip(call.destinations, view.outputs):
+        output_plaintext = await load_plaintext_from_operand(view_output.operand, view_registers, finalize_state, db, callee_program)
+        store_plaintext_to_register(output_plaintext, destination, caller_registers)

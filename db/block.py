@@ -384,6 +384,7 @@ class DatabaseBlock(DatabaseBase):
                                     records={},
                                     closures={},
                                     functions={},
+                                    views={},
                                     identifiers={},
                                 ),
                                 verifying_keys=Vec[Tuple[Identifier, VerifyingKey, Certificate], u16].load(BytesIO(deploy["verifying_keys"])),
@@ -629,6 +630,7 @@ class DatabaseBlock(DatabaseBase):
                                 records={},
                                 closures={},
                                 functions={},
+                                views={},
                                 identifiers={},
                             ),
                             verifying_keys=Vec[Tuple[Identifier, VerifyingKey, Certificate], u16]([])
