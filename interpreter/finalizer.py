@@ -183,11 +183,6 @@ async def _execute_commands(db: Database, cur: Optional[psycopg.AsyncCursor[dict
                 mapping_id = await load_mapping_cache_id(program_id, mapping)
                 key = await load_plaintext_from_operand(c.key, registers, finalize_state, db, program)
                 key_id = Field.loads(cached_get_key_id(str(program_id), str(mapping), key.dump()))
-                if debug:
-                    print("transition_id: ", transitions[transition_index])
-                    print("mapping_id: ", mapping_id)
-                    print("key_id: ", key_id)
-                    print("allow_state_change: ", allow_state_change)
 
                 if not allow_state_change and key_id in local_mapping_cache[mapping_id]:
                     if local_mapping_cache[mapping_id][key_id]["value"] is None:
@@ -197,8 +192,6 @@ async def _execute_commands(db: Database, cur: Optional[psycopg.AsyncCursor[dict
                         value = PlaintextValue(plaintext=default)
                     else:
                         value = local_mapping_cache[mapping_id][key_id]["value"]
-                        if debug:
-                            print(f"get local mapping cache {transitions[transition_index]}/{mapping_id}[{key_id}] = {value}")
                 else:
                     if key_id not in mapping_cache[mapping_id]:
                         if isinstance(c, GetCommand):
@@ -207,8 +200,6 @@ async def _execute_commands(db: Database, cur: Optional[psycopg.AsyncCursor[dict
                         value = PlaintextValue(plaintext=default)
                     else:
                         value = mapping_cache[mapping_id][key_id]["value"]
-                        if debug:
-                            print(f"get mapping cache [{transitions[transition_index]}][{mapping_id}][{key_id}] = {value}")
                 if debug:
                     print(f"get {program_id}/{mapping}[{key}] = {value}")
                 if not isinstance(value, PlaintextValue):
