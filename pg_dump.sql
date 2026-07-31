@@ -1415,7 +1415,7 @@ CREATE TABLE explorer.future_argument (
     id integer NOT NULL,
     future_id integer NOT NULL,
     type explorer.argument_type NOT NULL,
-    plaintext bytea
+    data bytea
 );
 
 
