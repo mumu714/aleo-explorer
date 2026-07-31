@@ -29,7 +29,8 @@ CREATE SCHEMA explorer;
 
 CREATE TYPE explorer.argument_type AS ENUM (
     'Plaintext',
-    'Future'
+    'Future',
+    'DynamicFuture'
 );
 
 
@@ -111,7 +112,10 @@ CREATE TYPE explorer.transition_data_type AS ENUM (
     'Private',
     'Record',
     'ExternalRecord',
-    'Future'
+    'Future',
+    'DynamicRecord',
+    'RecordWithDynamicID',
+    'ExternalRecordWithDynamicID'
 );
 
 

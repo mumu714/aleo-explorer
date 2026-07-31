@@ -23,6 +23,8 @@ class DatabaseMigrate(DatabaseBase):
             (2, self.migration_2_add_output_record_sender_ciphertext),
             (3, self.migration_3_add_program_edition),
             (4, self.migration_4_add_program_checksum),
+            (5, self.migration_5_add_dynamic_future_argument_type),
+            (6, self.migration_6_add_dynamic_transition_types),
         ]
         async with self.pool.connection() as conn:
             async with conn.cursor() as cur:
@@ -123,3 +125,11 @@ class DatabaseMigrate(DatabaseBase):
     @staticmethod
     async def migration_4_add_program_checksum(conn: psycopg.AsyncConnection[DictRow], redis: Redis[str]):
         await conn.execute("alter table program add checksum bytea")
+
+    @staticmethod
+    async def migration_5_add_dynamic_future_argument_type(conn: psycopg.AsyncConnection[DictRow], redis: Redis[str]):
+        await conn.execute("ALTER TYPE argument_type ADD VALUE 'DynamicFuture'")
+
+    @staticmethod
+    async def migration_6_add_dynamic_transition_types(conn: psycopg.AsyncConnection[DictRow], redis: Redis[str]):
+        await conn.execute(cast(LiteralString, open("db/migrate_11.sql").read()))
