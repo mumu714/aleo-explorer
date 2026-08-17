@@ -7,13 +7,13 @@ DROP FUNCTION get_transition_outputs(integer);
 
 CREATE TABLE transition_input_dynamic_record (
     id serial PRIMARY KEY,
-    transition_input_id integer NOT NULL REFERENCES transition_input(id),
+    transition_input_id integer NOT NULL REFERENCES transition_input(id) ON DELETE CASCADE,
     input_hash text NOT NULL
 );
 
 CREATE TABLE transition_input_record_with_dynamic_id (
     id serial PRIMARY KEY,
-    transition_input_id integer NOT NULL REFERENCES transition_input(id),
+    transition_input_id integer NOT NULL REFERENCES transition_input(id) ON DELETE CASCADE,
     serial_number text NOT NULL,
     tag text NOT NULL,
     dynamic_id text NOT NULL
@@ -21,20 +21,20 @@ CREATE TABLE transition_input_record_with_dynamic_id (
 
 CREATE TABLE transition_input_external_record_with_dynamic_id (
     id serial PRIMARY KEY,
-    transition_input_id integer NOT NULL REFERENCES transition_input(id),
+    transition_input_id integer NOT NULL REFERENCES transition_input(id) ON DELETE CASCADE,
     external_hash text NOT NULL,
     dynamic_id text NOT NULL
 );
 
 CREATE TABLE transition_output_dynamic_record (
     id serial PRIMARY KEY,
-    transition_output_id integer NOT NULL REFERENCES transition_output(id),
+    transition_output_id integer NOT NULL REFERENCES transition_output(id) ON DELETE CASCADE,
     commitment text NOT NULL
 );
 
 CREATE TABLE transition_output_record_with_dynamic_id (
     id serial PRIMARY KEY,
-    transition_output_id integer NOT NULL REFERENCES transition_output(id),
+    transition_output_id integer NOT NULL REFERENCES transition_output(id) ON DELETE CASCADE,
     commitment text NOT NULL,
     checksum text NOT NULL,
     record_ciphertext text,
@@ -44,7 +44,7 @@ CREATE TABLE transition_output_record_with_dynamic_id (
 
 CREATE TABLE transition_output_external_record_with_dynamic_id (
     id serial PRIMARY KEY,
-    transition_output_id integer NOT NULL REFERENCES transition_output(id),
+    transition_output_id integer NOT NULL REFERENCES transition_output(id) ON DELETE CASCADE,
     external_hash text NOT NULL,
     dynamic_id text NOT NULL
 );
