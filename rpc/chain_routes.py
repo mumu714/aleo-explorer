@@ -15,7 +15,7 @@ from aleo_types import u32, Transition, ExecuteTransaction, PrivateTransitionInp
     FeeTransaction, RejectedDeploy, RejectedExecution, Identifier, Entry, FutureTransitionOutput, Future, \
     PlaintextArgument, FutureArgument, StructPlaintext, Finalize, \
     PlaintextFinalizeType, StructPlaintextType, UpdateKeyValue, Value, Plaintext, RemoveKeyValue, FinalizeOperation, \
-    FeeComponent, Fee, Option
+    Fee, Option
 from aleo_types.cached import cached_get_key_id, cached_get_mapping_id
 from db import Database
 from util.global_cache import get_program
@@ -72,11 +72,7 @@ async def block_route(request: Request):
             base_fee, priority_fee = fee.value.amount
         else:
             base_fee, priority_fee = 0, 0
-        fee_breakdown = FeeComponent(base_fee, 0, [0], priority_fee, 0)
-        print(fee_breakdown)
-        base_fee = fee_breakdown.storage_cost + fee_breakdown.namespace_cost + sum(fee_breakdown.finalize_costs)
-        priority_fee = fee_breakdown.priority_fee
-        burnt_fee = fee_breakdown.burnt
+        burnt_fee = 0
         total_base_fee += base_fee
         total_priority_fee += priority_fee
         total_burnt_fee += burnt_fee

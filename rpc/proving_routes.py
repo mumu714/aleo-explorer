@@ -314,9 +314,6 @@ async def address_route(request: Request):
             base_fee, priority_fee = fee.value.amount
         else:
             base_fee, priority_fee = 0, 0
-        fee_breakdown = FeeComponent(base_fee, 0, [0], priority_fee, 0)
-        base_fee = fee_breakdown.storage_cost + fee_breakdown.namespace_cost + sum(fee_breakdown.finalize_costs)
-        priority_fee = fee_breakdown.priority_fee
         deploy_programs.append({
             "program_id": program,
             "height": deploy_info["height"],
